@@ -90,8 +90,11 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         logger.info("  Input file   : %s", csv_path)
         logger.info("=" * 60)
 
+        self._lead_cache = self._load_cache()
+
         try:
             self._step(state, "load_csv", None, self._load_csv, csv_path)
+            self._step(state, "check_cache", None, self._check_cache)
             self._step(state, "intake", *AGENT_REGISTRY["intake"])
             self._step(state, "classify", *AGENT_REGISTRY["classify"])
             self._step(state, "action", *AGENT_REGISTRY["action"])
@@ -111,6 +114,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
                 (end_dt - start_dt).total_seconds() * 1000, 2
             )
 
+        self._save_cache(state)
         self._write_outputs(state)
         self._log_summary(state)
         return state
@@ -183,6 +187,48 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             agent_name,
             self.MAX_ATTEMPTS,
             overall_ms,
+        )
+
+    # ------------------------------------------------------------------
+    # Cross-session lead cache
+    # ------------------------------------------------------------------
+
+    def _load_cache(self) -> dict:
+        """Load previously seen leads from a JSON file cache."""
+        path = self._output_dir / "lead_cache.json"
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return {"companies": {}}
+        return {"companies": {}}
+
+    def _check_cache(self, state: WorkflowState) -> None:
+        """Cross-reference leads against the cache and flag repeats."""
+        seen = self._lead_cache.get("companies", {})
+        for lead in state.leads:
+            key = lead.company_name.strip().lower()
+            if key and key in seen and lead.status.value == "valid":
+                prev = seen[key]
+                logger.info(
+                    "  Lead '%s' previously seen on %s — cross-referenced",
+                    lead.company_name,
+                    prev.get("first_seen", "unknown"),
+                )
+
+    def _save_cache(self, state: WorkflowState) -> None:
+        """Save newly-seen leads to the cache file."""
+        path = self._output_dir / "lead_cache.json"
+        now = datetime.now(timezone.utc).isoformat()
+        for lead in state.leads:
+            key = lead.company_name.strip().lower()
+            if key and key not in self._lead_cache["companies"]:
+                self._lead_cache["companies"][key] = {
+                    "first_seen": now,
+                    "email": lead.contact_email,
+                }
+        path.write_text(
+            json.dumps(self._lead_cache, indent=2, default=str), encoding="utf-8"
         )
 
     # ------------------------------------------------------------------
