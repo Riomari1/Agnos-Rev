@@ -1,0 +1,11 @@
+company_name,contact_email,industry,revenue_millions,employees,lead_source,notes
+Acme Corp,contact@acme.com,Technology,120.0,1500,conference,Expanding into new markets — urgent POC
+Globex Inc,sales@globex.io,Manufacturing,45.0,800,referral,Exploring automation solutions
+Initech,,Technology,5.0,50,website,Small lead — early stage
+Hooli LLC,,Technology,500.0,10000,conference,Hot prospect — schedule demo
+Cyberdyne Systems,info@cyber.com,Defense,200.0,3000,partner,Government contract pending
+Wonka Industries,willy@wonka.io,Food & Bev,2.0,20,website,Churn risk — competitor engagement detected
+Stark Industries,tony@stark.com,Technology,80.0,4500,inbound,New funding round — expanding rapidly
+Dunder Mifflin,,Paper,8.0,200,referral,Stalled deal — needs re-engagement
+Umbrella Corp,umbrella@rac.online,Pharma,300.0,8000,conference,Regulatory approval expected Q3
+Massive Dynamic,,Technology,1000.0,50000,partner,Global expansion — multiple contracts
