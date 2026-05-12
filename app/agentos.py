@@ -1,16 +1,15 @@
 """
-Agno Playground UI — visual agent inspection.
+AgentOS UI — visual agent and workflow inspection.
 
-Launches a FastAPI app that the Agno OS dashboard connects to.
+Launches a FastAPI app that the Agno dashboard connects to.
 
 Usage:
     python -m app.agentos
-    # Then open https://app.agno.com/playground and connect to localhost:7777
+    # Then open https://app.agno.com and connect to localhost:7777
 
-Note: The workflow pipeline is orchestrated in code via
-``RevenueOpsWorkflow._execute()`` and is best experienced through the CLI
+Note: The workflow is best experienced through the CLI
 (``python -m app.main``) or Streamlit UI (``streamlit run demo/ui.py``).
-The Playground is primarily for visual agent inspection.
+AgentOS is primarily for visual agent inspection and debugging.
 """
 
 from __future__ import annotations
@@ -26,17 +25,17 @@ if _env_path.exists():
 else:
     load_dotenv()
 
-from agno.playground import Playground
+from agno.os import AgentOS
 
 from app.agents.team import action, classify, intake, review
 from app.workflows.workflow import RevenueOpsWorkflow
 
-playground = Playground(
+agent_os = AgentOS(
     agents=[intake, classify, action, review],
     workflows=[RevenueOpsWorkflow()],
 )
 
-app = playground.get_app(use_async=False)
+app = agent_os.get_app()
 
 if __name__ == "__main__":
-    playground.serve(app="app.agentos:app", reload=True)
+    agent_os.serve(app="app.agentos:app", reload=True)

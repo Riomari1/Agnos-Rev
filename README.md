@@ -59,18 +59,18 @@ streamlit run demo/ui.py
 
 Upload any CSV through the browser, click ▶ Run Workflow, and see results instantly.
 
-#### Option 3 — Agno Playground (visual agent inspection)
+#### Option 3 — AgentOS UI (visual inspection + workflow demo)
 
 ```powershell
 python -m app.agentos
 ```
 
-Then open [https://app.agno.com/playground](https://app.agno.com/playground) and connect to:
+Then open [https://app.agno.com](https://app.agno.com), click **Connect OS → Local**, and enter:
 `http://localhost:7777`
 
-You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their DeepSeek model, instructions, and registered tools (`DataQualityTool`, `FollowUpSLATool`). The workflow (`RevenueOpsCopilot`) is registered in the API but the hosted dashboard's workflow UI has limited support in this Agno version — the primary workflow demo paths are CLI and Streamlit. The Playground is used for visual agent inspection and debugging.
+You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their DeepSeek model, instructions, and registered tools (`DataQualityTool`, `FollowUpSLATool`). The workflow (`RevenueOpsCopilot`) is also registered and can be run from the UI — it will default to processing `examples/leads.csv`.
 
-> **Note:** If `DEEPSEEK_API_KEY` is set in `.env`, agents will show DeepSeek as their model. Without it, they fall back gracefully — the Playground still displays them, but running them from the UI requires a configured API key.
+> **Note:** The CLI is the primary path for reproducible demos and custom CSV files. AgentOS is for visual agent inspection and quick workflow demos. If `DEEPSEEK_API_KEY` is set in `.env`, the agents show DeepSeek as their model.
 
 ### Outputs
 
@@ -162,7 +162,7 @@ agno-takehome/
 │   └── leads.csv            # 10 sample leads
 ├── outputs/                 # Generated artifacts + lead cache (gitignored)
 ├── tests/
-│   └── test_workflow.py     # 11 tests — integration, edge cases, retry, outputs, error-cases CSV
+│   └── test_workflow.py     # 12 tests — integration, edge cases, retry, outputs, error-cases CSV, default-run
 ├── .gitignore
 ├── example.env
 ├── requirements.txt
@@ -231,7 +231,7 @@ The `_step()` method tracks:
 python -m pytest tests/ -v
 ```
 
-11 tests covering:
+12 tests covering:
 
 | Test | What it verifies |
 |---|---|
@@ -246,6 +246,7 @@ python -m pytest tests/ -v
 | `test_review_rejects_missing_classifications` | No-op classify → review rejects with "missing classification" |
 | `test_review_rejects_empty_workflow` | No leads at all → rejected |
 | `test_error_cases_csv_resilience` | 15-row error CSV: 3 parse errors, 6 valid, 6 invalid, no crash |
+| `test_workflow_run_default_csv` | `workflow.run(input=None)` defaults to `examples/leads.csv` |
 
 ---
 

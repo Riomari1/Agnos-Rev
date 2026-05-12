@@ -341,3 +341,19 @@ def test_error_cases_csv_resilience() -> None:
 
     # Workflow completed without crashing
     assert state.metrics.success is True
+
+
+def test_workflow_run_default_csv() -> None:
+    """``Workflow.run(input=None)`` defaults to ``examples/leads.csv``."""
+    from agno.run.workflow import WorkflowRunOutput
+
+    csv_path = Path("examples/leads.csv")
+    assert csv_path.exists(), f"{csv_path} not found"
+
+    wf = RevenueOpsWorkflow()
+    result = wf.run(input=None)
+
+    assert isinstance(result, WorkflowRunOutput)
+    assert result.content is not None
+    assert "Approved" in result.content
+    assert "10 total" in result.content or "Leads:" in result.content

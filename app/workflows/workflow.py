@@ -21,6 +21,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agno.run.workflow import WorkflowRunOutput
 from agno.workflow import Workflow as AgnoWorkflow
 from pydantic import ValidationError
 
@@ -54,15 +55,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             self.__class__, "_output_dir_override", Path("outputs")
         )
         self._output_dir.mkdir(exist_ok=True)
-
-        # Set up Agno session scaffolding directly
-        self.set_storage_mode()
-        self.set_debug()
-        self.set_monitoring()
-        self.set_workflow_id()
-        self.set_session_id()
-        self.run_id = str(int(time.time() * 1_000_000))
-        self.initialize_memory()
+        self.initialize_workflow()
 
     # ------------------------------------------------------------------
     # Public API
@@ -74,9 +67,38 @@ class RevenueOpsWorkflow(AgnoWorkflow):
 
         Example:
             state = RevenueOpsWorkflow.run_sync("examples/leads.csv")
+
+        This is the primary API used by the CLI (``app.main``) and tests.
         """
         wf = RevenueOpsWorkflow()
         return wf._execute(csv_path)
+
+    def run(self, input: str | dict | None = None, **kwargs) -> WorkflowRunOutput:
+        """Run method called by the AgentOS UI.
+
+        ``input`` is the message from the UI (typically ``None`` or ``{}``).
+        We default to ``examples/leads.csv`` so the workflow is immediately
+        runnable from the dashboard.
+
+        Returns a ``WorkflowRunOutput`` with execution summary text.
+        """
+        csv_path = "examples/leads.csv"
+
+        try:
+            state = self._execute(csv_path)
+            summary = (
+                f"Revenue Ops Copilot — {csv_path}\n"
+                f"Status: {'Approved' if state.review_approved else 'Needs review'}\n"
+                f"Leads: {state.metrics.total_leads} total, "
+                f"{state.metrics.valid_leads} valid, {state.metrics.invalid_leads} invalid\n"
+                f"Recommendations: {len(state.recommendations)}\n"
+                f"Duration: {state.metrics.total_duration_ms:.0f} ms"
+            )
+            return WorkflowRunOutput(content=summary)
+        except FileNotFoundError:
+            return WorkflowRunOutput(
+                content=f"File not found: {csv_path}. Use CLI for custom paths."
+            )
 
     def _execute(self, csv_path: str | Path) -> WorkflowState:
         """Core execution logic."""
@@ -86,7 +108,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         logger.info("=" * 60)
         logger.info("Revenue Ops Copilot — workflow started")
         logger.info("  Agno session : %s", self.session_id or "(not set)")
-        logger.info("  Agno run ID  : %s", self.run_id or "(not set)")
+        logger.info("  Agno run ID  : %s", getattr(self, "run_id", None) or "(not set)")
         logger.info("  Input file   : %s", csv_path)
         logger.info("=" * 60)
 
@@ -330,7 +352,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             "workflow": {
                 "name": self.name,
                 "session_id": self.session_id,
-                "run_id": self.run_id,
+                "run_id": getattr(self, "run_id", None),
                 "description": self.description,
             },
             "input_path": state.input_path,
@@ -358,7 +380,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             "",
             f"- **Input file**: `{state.input_path}`",
             f"- **Agno session**: `{self.session_id or 'N/A'}`",
-            f"- **Agno run**: `{self.run_id or 'N/A'}`",
+            f"- **Agno run**: `{getattr(self, 'run_id', None) or 'N/A'}`",
             f"- **Status**: {'✅ Approved' if state.review_approved else '❌ Needs review'}",
             f"- **Total leads**: {state.metrics.total_leads}",
             f"- **Valid leads**: {state.metrics.valid_leads}",
@@ -409,7 +431,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             "✅ Approved" if state.review_approved else "❌ Needs review",
         )
         logger.info("  Session:     %s", self.session_id or "N/A")
-        logger.info("  Run ID:      %s", self.run_id or "N/A")
+        logger.info("  Run ID:      %s", getattr(self, "run_id", None) or "N/A")
         logger.info("  Total leads: %d", state.metrics.total_leads)
         logger.info("  Valid:       %d", state.metrics.valid_leads)
         logger.info("  Invalid:     %d", state.metrics.invalid_leads)
