@@ -68,7 +68,9 @@ python -m app.agentos
 Then open [https://app.agno.com/playground](https://app.agno.com/playground) and connect to:
 `http://localhost:7777`
 
-You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their instructions and tools. No API key needed — this is purely for visual inspection of the agent topology.
+You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their DeepSeek model, instructions, and registered tools (`DataQualityTool`, `FollowUpSLATool`). The workflow (`RevenueOpsCopilot`) is registered in the API but the hosted dashboard's workflow UI has limited support in this Agno version — the primary workflow demo paths are CLI and Streamlit. The Playground is used for visual agent inspection and debugging.
+
+> **Note:** If `DEEPSEEK_API_KEY` is set in `.env`, agents will show DeepSeek as their model. Without it, they fall back gracefully — the Playground still displays them, but running them from the UI requires a configured API key.
 
 ### Outputs
 
