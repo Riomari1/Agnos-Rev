@@ -38,6 +38,7 @@ from app.models.schemas import (
 )
 from app.tools.data_quality import DataQualityTool
 from app.tools.follow_up_sla import FollowUpSLATool
+from app.tools.run_workflow import RunWorkflowTool
 
 logger = logging.getLogger("agents")
 
@@ -267,7 +268,7 @@ intake = AgnoAgent(
     instructions=_INTAKE_INSTRUCTIONS,
     description="Validates and normalises incoming CSV lead records.",
     model=_DEFAULT_MODEL,
-    tools=[DataQualityTool()],
+    tools=[DataQualityTool(), RunWorkflowTool()],
 )
 
 classify = AgnoAgent(

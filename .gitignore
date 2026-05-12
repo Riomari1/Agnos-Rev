@@ -28,6 +28,7 @@ Thumbs.db
 # Output
 outputs/*.json
 outputs/*.md
+outputs/agentos.db
 
 # Logs
 *.log
