@@ -35,7 +35,7 @@ def _setup_logging(verbose: bool = False) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="revenue-ops-copilot",
-        description="Revenue Ops Copilot — review leads, classify risk/opportunity, "
+        description="Revenue Ops Copilot - review leads, classify risk/opportunity, "
         "prioritise actions, and generate operator summaries.",
     )
     parser.add_argument(
@@ -69,7 +69,7 @@ def main() -> None:
 
     if not state.metrics.success:
         logger.warning(
-            "Workflow completed with issues — see outputs/summary.md for details."
+            "Workflow completed with issues - see outputs/summary.md for details."
         )
         sys.exit(1)
 

@@ -6,6 +6,7 @@ dist/
 build/
 *.egg
 .pytest_cache/
+.pytest_tmp/
 
 # Virtual environment
 .venv/

@@ -1,15 +1,19 @@
 """
 Integration and edge-case tests for the Revenue Ops Copilot.
 
-All tests run against the real AI pipeline (DeepSeek via tools).
-Requires DEEPSEEK_API_KEY in .env (loaded by conftest.py).
+Most tests use the deterministic local runtime so CI does not require network
+access. A dedicated test monkeypatches AgnoAgent.run to verify the DeepSeek tool
+path without calling the live API.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 from pydantic import BaseModel
@@ -131,6 +135,96 @@ def test_workflow_end_to_end(sample_csv: Path) -> None:
     assert 0.0 <= alpha.confidence <= 1.0
 
 
+def test_deepseek_agno_tool_path_is_used(monkeypatch) -> None:
+    """Verify the primary runtime builds Agno DeepSeek agents with tools."""
+
+    import app.agents.team as team_mod
+
+    calls: list[dict] = []
+
+    def _fake_run(self, input=None, **kwargs):
+        calls.append(
+            {
+                "name": self.name,
+                "model": self.model.__class__.__name__,
+                "tools": [getattr(t, "name", "") for t in self.tools or []],
+            }
+        )
+        for tool in self.tools or []:
+            if hasattr(tool, "flag_valid"):
+                tool.flag_valid(
+                    company_name="MockCo",
+                    contact_email="ops@mock.co",
+                    industry="Technology",
+                    revenue_millions=150.0,
+                    employees=1200,
+                )
+            if hasattr(tool, "classify_lead"):
+                tool.classify_lead(
+                    company_name="MockCo",
+                    industry="Technology",
+                    urgency="high",
+                    risk="low",
+                    opportunity="high",
+                    confidence=0.9,
+                    enrichment_notes="Strong revenue and technology fit.",
+                )
+            if hasattr(tool, "add_recommendation"):
+                tool.add_recommendation(
+                    company_name="MockCo",
+                    action="Schedule executive follow-up",
+                    priority=1,
+                    assignee="Account Executive",
+                    rationale="High urgency and high opportunity.",
+                    due_by="24h",
+                )
+            if hasattr(tool, "submit_review"):
+                tool.submit_review(
+                    approved=True,
+                    notes="Approved by mocked DeepSeek tool path.",
+                )
+
+    monkeypatch.setenv("REVENUE_OPS_AGENT_MODE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setattr(team_mod.AgnoAgent, "run", _fake_run)
+
+    state = WorkflowState(
+        leads=[
+            LeadRecord(
+                company_name="MockCo",
+                contact_email="ops@mock.co",
+                industry="Technology",
+                revenue_millions=150.0,
+                employees=1200,
+            )
+        ]
+    )
+
+    state = intake_agent_fn(state)
+    state = team_mod.classify_agent_fn(state)
+    state = team_mod.action_agent_fn(state)
+    state = review_agent_fn(state)
+
+    assert [c["name"] for c in calls] == [
+        "IntakeAgent",
+        "ClassifyAgent",
+        "ActionAgent",
+        "ReviewAgent",
+    ]
+    assert all(c["model"] == "DeepSeek" for c in calls)
+    assert calls[0]["tools"] == ["data_quality", "run_workflow", "intake_tools"]
+    assert calls[1]["tools"] == ["classify_tools"]
+    assert calls[2]["tools"] == ["follow_up_sla", "action_tools"]
+    assert calls[3]["tools"] == ["review_tools"]
+    assert state.metrics.agent_modes == {
+        "intake": "deepseek",
+        "classify": "deepseek",
+        "action": "deepseek",
+        "review": "deepseek",
+    }
+    assert state.review_approved is True
+
+
 # ------------------------------------------------------------------
 # Edge case tests
 # ------------------------------------------------------------------
@@ -207,7 +301,7 @@ def test_retry_on_agent_failure(fragile_agent_csv: Path) -> None:
     import app.agents.team as team_mod
 
     orig = team_mod.AGENT_REGISTRY.copy()
-    team_mod.AGENT_REGISTRY["classify"] = (team_mod.classify, _failing_fn)
+    team_mod.AGENT_REGISTRY["classify"] = {"agno_agent": None, "fn": _failing_fn}
     try:
         state = RevenueOpsWorkflow.run_sync(fragile_agent_csv)
         assert state.metrics.agent_statuses.get("classify") == "success"
@@ -226,7 +320,7 @@ def test_retry_exhaustion(fragile_agent_csv: Path) -> None:
     import app.agents.team as team_mod
 
     orig = team_mod.AGENT_REGISTRY.copy()
-    team_mod.AGENT_REGISTRY["action"] = (team_mod.action, _always_fails)
+    team_mod.AGENT_REGISTRY["action"] = {"agno_agent": None, "fn": _always_fails}
     try:
         state = RevenueOpsWorkflow.run_sync(fragile_agent_csv)
         assert state.metrics.agent_statuses.get("action") == "failure"
@@ -281,7 +375,7 @@ def test_review_rejects_missing_classifications(sample_csv: Path) -> None:
         return s
 
     orig = team_mod.AGENT_REGISTRY.copy()
-    team_mod.AGENT_REGISTRY["classify"] = (team_mod.classify, _skip)
+    team_mod.AGENT_REGISTRY["classify"] = {"agno_agent": None, "fn": _skip}
     try:
         state = RevenueOpsWorkflow.run_sync(sample_csv)
         assert state.review_approved is False
@@ -317,3 +411,23 @@ def test_workflow_run_default_csv() -> None:
     assert result.content is not None
     assert "Approved" in result.content
     assert "Leads:" in result.content
+
+
+def test_cli_runs_end_to_end() -> None:
+    csv_path = Path("examples/leads.csv")
+    assert csv_path.exists(), f"{csv_path} not found"
+
+    env = os.environ.copy()
+    env["REVENUE_OPS_AGENT_MODE"] = "local"
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", str(csv_path)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "Workflow complete" in result.stderr + result.stdout

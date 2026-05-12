@@ -81,5 +81,5 @@ class FollowUpSLATool(Toolkit):
             reasons.append("high opportunity")
 
         if not reasons:
-            return "Standard follow-up cadence — no overriding signals."
+            return "Standard follow-up cadence - no overriding signals."
         return "Driven by " + ", ".join(reasons) + "."

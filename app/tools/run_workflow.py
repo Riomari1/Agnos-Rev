@@ -1,5 +1,5 @@
 """
-Run-workflow tool — bridges AgentOS chat to the CSV pipeline.
+Run-workflow tool - bridges AgentOS chat to the CSV pipeline.
 
 Registered on an agent so the user can type prompts like
 "process examples/leads.csv" from the AgentOS chat UI, and the LLM
@@ -39,9 +39,9 @@ class RunWorkflowTool(Toolkit):
             f"- [{r.priority}] **{r.company_name}**: {r.action}  \n" for r in recs
         )
         return (
-            f"### Revenue Ops Copilot — Results\n\n"
+            f"### Revenue Ops Copilot - Results\n\n"
             f"**Input:** `{csv_path}`\n"
-            f"**Status:** {'✅ Approved' if state.review_approved else '❌ Needs review'}\n"
+            f"**Status:** {'Approved' if state.review_approved else 'Needs review'}\n"
             f"**Leads:** {state.metrics.total_leads} total, "
             f"{state.metrics.valid_leads} valid, {state.metrics.invalid_leads} invalid\n"
             f"**Recommendations:** {len(state.recommendations)} generated\n"

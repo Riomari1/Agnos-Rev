@@ -2,7 +2,7 @@
 Workflow orchestrator for the Revenue Ops Copilot.
 
 Extends ``agno.workflow.Workflow`` for real Agno-based orchestration
-scaffolding — class hierarchy, session management, and execution metadata.
+scaffolding: class hierarchy, session management, and execution metadata.
 
 NOTE on Agno's ``_subclass_run`` pattern:
   ``run_workflow()`` internally assigns ``_subclass_run = self.run``,
@@ -77,9 +77,9 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         """Run method called by the AgentOS UI.
 
         Accepts:
-        - ``None`` or ``{}`` → defaults to ``examples/leads.csv``
-        - ``"examples/leads.csv"`` → used as CSV path
-        - ``{"csv_path": "examples/leads.csv"}`` → csv_path extracted from dict
+        - ``None`` or ``{}`` defaults to ``examples/leads.csv``
+        - ``"examples/leads.csv"`` is used as CSV path
+        - ``{"csv_path": "examples/leads.csv"}`` extracts csv_path from dict
 
         Returns a ``WorkflowRunOutput`` with a markdown summary.
         """
@@ -97,22 +97,22 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         resolved = Path(csv_path)
         if not resolved.exists():
             return WorkflowRunOutput(
-                content=f"❌ File not found: `{csv_path}`\n\nUse the CLI for custom paths: `python -m app.main <path>`"
+                content=f"File not found: `{csv_path}`\n\nUse the CLI for custom paths: `python -m app.main <path>`"
             )
         if resolved.suffix.lower() != ".csv":
             return WorkflowRunOutput(
-                content=f"❌ Unsupported file type: `{resolved.suffix}`. Please provide a `.csv` file."
+                content=f"Unsupported file type: `{resolved.suffix}`. Please provide a `.csv` file."
             )
 
         try:
             state = self._execute(csv_path)
         except Exception as e:
-            return WorkflowRunOutput(content=f"❌ Workflow failed: {e}")
+            return WorkflowRunOutput(content=f"Workflow failed: {e}")
 
         summary = (
-            f"### Revenue Ops Copilot — Results\n\n"
+            f"### Revenue Ops Copilot - Results\n\n"
             f"**Input:** `{csv_path}`\n"
-            f"**Status:** {'✅ Approved' if state.review_approved else '❌ Needs review'}\n"
+            f"**Status:** {'Approved' if state.review_approved else 'Needs review'}\n"
             f"**Leads:** {state.metrics.total_leads} total, "
             f"{state.metrics.valid_leads} valid, {state.metrics.invalid_leads} invalid\n"
             f"**Recommendations:** {len(state.recommendations)}\n"
@@ -135,7 +135,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         stream: bool | None = None,
         **kwargs,
     ):
-        """Execute the workflow (sync or streaming) — called by AgentOS.
+        """Execute the workflow (sync or streaming) - called by AgentOS.
 
         **Important**: This must be a regular ``def`` (not ``async def``)
         to match the parent ``Workflow.arun`` contract.  AgentOS calls
@@ -189,7 +189,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         state.metrics.start_time = datetime.now(timezone.utc).isoformat()
 
         logger.info("=" * 60)
-        logger.info("Revenue Ops Copilot — workflow started")
+        logger.info("Revenue Ops Copilot - workflow started")
         logger.info("  Agno session : %s", self.session_id or "(not set)")
         logger.info("  Agno run ID  : %s", getattr(self, "run_id", None) or "(not set)")
         logger.info("  Input file   : %s", csv_path)
@@ -200,19 +200,44 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         try:
             self._step(state, "load_csv", None, self._load_csv, csv_path)
             self._step(state, "check_cache", None, self._check_cache)
-            self._step(state, "intake", *AGENT_REGISTRY["intake"])
-            self._step(state, "classify", *AGENT_REGISTRY["classify"])
-            self._step(state, "action", *AGENT_REGISTRY["action"])
+            self._step(
+                state,
+                "intake",
+                AGENT_REGISTRY["intake"].get("spec"),
+                AGENT_REGISTRY["intake"]["fn"],
+            )
+            self._step(
+                state,
+                "classify",
+                AGENT_REGISTRY["classify"].get("spec"),
+                AGENT_REGISTRY["classify"]["fn"],
+            )
+            self._step(
+                state,
+                "action",
+                AGENT_REGISTRY["action"].get("spec"),
+                AGENT_REGISTRY["action"]["fn"],
+            )
             # Self-correction loop: if review flags issues, re-run action once
             for iteration in range(2):
-                self._step(state, "review", *AGENT_REGISTRY["review"])
+                self._step(
+                    state,
+                    "review",
+                    AGENT_REGISTRY["review"].get("spec"),
+                    AGENT_REGISTRY["review"]["fn"],
+                )
                 if state.review_approved:
                     break
                 logger.info(
-                    "  Review not approved — re-running action agent (iteration %d)",
+                    "  Review not approved - re-running action agent (iteration %d)",
                     iteration + 1,
                 )
-                self._step(state, "action", *AGENT_REGISTRY["action"])
+                self._step(
+                    state,
+                    "action",
+                    AGENT_REGISTRY["action"].get("spec"),
+                    AGENT_REGISTRY["action"]["fn"],
+                )
 
         except Exception:
             error = traceback.format_exc()
@@ -266,7 +291,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             attempt_start = time.perf_counter()
             try:
                 logger.info(
-                    "  ⚙  %s  [attempt %d/%d]", agent_name, attempt, self.MAX_ATTEMPTS
+                    "  RUN  %s  [attempt %d/%d]", agent_name, attempt, self.MAX_ATTEMPTS
                 )
                 if attempt == 1:
                     logger.debug("  Instructions: %s", instructions_preview)
@@ -276,14 +301,14 @@ class RevenueOpsWorkflow(AgnoWorkflow):
                 elapsed_ms = round((time.perf_counter() - attempt_start) * 1000, 2)
                 state.metrics.agent_timings_ms[name] = elapsed_ms
                 state.metrics.agent_statuses[name] = "success"
-                logger.info("  ✓ %s  completed in %.0f ms", agent_name, elapsed_ms)
+                logger.info("  OK   %s  completed in %.0f ms", agent_name, elapsed_ms)
                 return
 
             except Exception as e:
                 elapsed_ms = round((time.perf_counter() - attempt_start) * 1000, 2)
                 _last_error = e
                 logger.warning(
-                    "  ✗ %s  attempt %d failed after %.0f ms: %s",
+                    "  FAIL %s  attempt %d failed after %.0f ms: %s",
                     agent_name,
                     attempt,
                     elapsed_ms,
@@ -297,7 +322,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         state.metrics.agent_statuses[name] = "failure"
         state.metrics.errors.append(f"[{name}] {_last_error}")
         logger.error(
-            "  ✗ %s  failed after %d attempt(s) (%d ms)",
+            "  FAIL %s  failed after %d attempt(s) (%d ms)",
             agent_name,
             self.MAX_ATTEMPTS,
             overall_ms,
@@ -325,7 +350,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             if key and key in seen and lead.status.value == "valid":
                 prev = seen[key]
                 logger.info(
-                    "  Lead '%s' previously seen on %s — cross-referenced",
+                    "  Lead '%s' previously seen on %s - cross-referenced",
                     lead.company_name,
                     prev.get("first_seen", "unknown"),
                 )
@@ -442,11 +467,12 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             "metrics": state.metrics.model_dump(),
             "agents": {
                 name: {
-                    "agno_name": getattr(agno, "name", name),
+                    "agno_name": getattr(entry.get("spec"), "name", name.title()),
                     "status": state.metrics.agent_statuses.get(name, "unknown"),
                     "timing_ms": state.metrics.agent_timings_ms.get(name),
+                    "mode": state.metrics.agent_modes.get(name, "unknown"),
                 }
-                for name, (agno, _fn) in AGENT_REGISTRY.items()
+                for name, entry in AGENT_REGISTRY.items()
             },
             "lead_count": len(state.leads),
             "classification_count": len(state.classifications),
@@ -459,12 +485,12 @@ class RevenueOpsWorkflow(AgnoWorkflow):
 
     def _write_summary_md(self, state: WorkflowState) -> None:
         lines: list[str] = [
-            "# Revenue Ops Copilot — Summary",
+            "# Revenue Ops Copilot - Summary",
             "",
             f"- **Input file**: `{state.input_path}`",
             f"- **Agno session**: `{self.session_id or 'N/A'}`",
             f"- **Agno run**: `{getattr(self, 'run_id', None) or 'N/A'}`",
-            f"- **Status**: {'✅ Approved' if state.review_approved else '❌ Needs review'}",
+            f"- **Status**: {'Approved' if state.review_approved else 'Needs review'}",
             f"- **Total leads**: {state.metrics.total_leads}",
             f"- **Valid leads**: {state.metrics.valid_leads}",
             f"- **Invalid leads**: {state.metrics.invalid_leads}",
@@ -475,8 +501,9 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         ]
         for agent, ms in state.metrics.agent_timings_ms.items():
             status = state.metrics.agent_statuses.get(agent, "?")
-            ico = "✅" if status == "success" else "❌"
-            lines.append(f"- {ico} **{agent}**: {ms:.0f} ms ({status})")
+            mode = state.metrics.agent_modes.get(agent, "n/a")
+            ico = "OK" if status == "success" else "FAIL"
+            lines.append(f"- {ico} **{agent}**: {ms:.0f} ms ({status}, {mode})")
 
         lines += [
             "",
@@ -511,7 +538,7 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         logger.info("Workflow complete")
         logger.info(
             "  Status:      %s",
-            "✅ Approved" if state.review_approved else "❌ Needs review",
+            "Approved" if state.review_approved else "Needs review",
         )
         logger.info("  Session:     %s", self.session_id or "N/A")
         logger.info("  Run ID:      %s", getattr(self, "run_id", None) or "N/A")

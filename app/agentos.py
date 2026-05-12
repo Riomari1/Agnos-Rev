@@ -1,5 +1,5 @@
 """
-AgentOS UI — visual agent and workflow inspection.
+AgentOS UI - visual agent and workflow inspection.
 
 Launches a FastAPI app that the Agno dashboard connects to.
 
@@ -28,14 +28,14 @@ else:
 from agno.db.sqlite import SqliteDb
 from agno.os import AgentOS
 
-from app.agents.team import action, classify, intake, review
+from app.agents.team import build_agent_os_agents
 from app.workflows.workflow import RevenueOpsWorkflow
 
 _output_dir = Path(__file__).resolve().parent.parent / "outputs"
 _output_dir.mkdir(exist_ok=True)
 
 agent_os = AgentOS(
-    agents=[intake, classify, action, review],
+    agents=build_agent_os_agents(),
     workflows=[RevenueOpsWorkflow()],
     db=SqliteDb(db_file=str(_output_dir / "agentos.db")),
 )
