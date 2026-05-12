@@ -36,8 +36,13 @@ st.markdown(
 
 st.sidebar.header("About")
 st.sidebar.markdown(
-    "This demo runs in **deterministic rule-based mode** — no API key required. "
-    "Set `DEEPSEEK_API_KEY` in `.env` for LLM-powered classification."
+    "**AI-powered with rule-based fallback.** "
+    "Set `DEEPSEEK_API_KEY` in `.env` and all 4 agents use DeepSeek "
+    "for classification, action generation, and review (~60s for 10 leads). "
+    "Without a key, deterministic rules run instantly (~2ms) — "
+    "clone, install, run, results in under 30 seconds."
+)` "
+    "is architecturally supported but not active in this demo."
 )
 
 st.sidebar.header("Sample Files")

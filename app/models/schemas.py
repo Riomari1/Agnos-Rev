@@ -114,6 +114,40 @@ class AgentResult(BaseModel):
     data: Optional[BaseModel] = None
 
 
+class IntakeAgentOutput(BaseModel):
+    """Structured output from the LLM-powered IntakeAgent."""
+
+    validated_leads: list[LeadRecord] = Field(
+        default_factory=list,
+        description="Leads with status, validation_errors, and dedup flags set",
+    )
+
+
+class ClassifyAgentOutput(BaseModel):
+    """Structured output from the LLM-powered ClassifyAgent."""
+
+    classifications: list[ClassificationResult] = Field(
+        default_factory=list,
+        description="One ClassificationResult per valid lead, keyed by company_name",
+    )
+
+
+class ActionAgentOutput(BaseModel):
+    """Structured output from the LLM-powered ActionAgent."""
+
+    recommendations: list[ActionRecommendation] = Field(
+        default_factory=list,
+        description="Prioritised follow-up actions, 1–2 per lead",
+    )
+
+
+class ReviewAgentOutput(BaseModel):
+    """Structured output from the LLM-powered ReviewAgent."""
+
+    approved: bool = Field(description="True if all consistency checks pass")
+    notes: str = Field(description="Review findings and recommendations")
+
+
 class WorkflowState(BaseModel):
     """Shared state passed through the entire workflow pipeline."""
 

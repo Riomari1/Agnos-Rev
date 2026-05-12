@@ -1,311 +1,346 @@
 # Revenue Ops Copilot
 
-> A lightweight multi-agent workflow that ingests leads from a CSV, classifies urgency/risk/opportunity, prioritises follow-up actions, and produces operator-ready summaries.
-
-**Track:** Option D — Revenue Operations / Operators Team  
-**Framework:** [Agno](https://github.com/agno-agi/agno) `v1.8` (`agno.workflow.Workflow` + `agno.agent.Agent`)  
-**Language:** Python 3.12+  
-**Demo:** CLI + structured JSON + Markdown summary  
+**Track:** Option D — Revenue Operations / Operators Team
+**Framework:** Agno v2.6 (`agno.workflow.Workflow` + `agno.Agent`)
+**Language:** Python 3.12+
+**Size:** ~12 source files, ~700 lines of application code
 
 ---
+
+A multi-agent workflow that ingests a CSV of leads, classifies each by urgency/risk/opportunity, generates prioritised follow-up actions, runs a review/self-correction loop, and writes operator-ready summaries — all deterministically, with no API key required.
+
+## Why This Project Exists
+
+Revenue operations teams sit on top of CRMs full of unprioritised leads. The gap isn't data — it's triage. Someone has to look at every lead, decide if it matters, figure out what to do, and hand it off. Most teams do this manually in a spreadsheet.
+
+This project asks: what's the smallest useful automation you can put in front of an operator to replace that spreadsheet workflow? The answer is a pipeline that reads a CSV, has AI score every lead on three dimensions, generates concrete actions, and checks its own work before handing off.
 
 ## Quick Start
 
-```powershell
-# Prerequisites: Python 3.12+, PowerShell or bash
-
-# Clone and enter
+```bash
+# Python 3.12+, any OS
 cd agno-takehome
-
-# Create virtual environment
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# Install dependencies
+source .venv/bin/activate   # or .\.venv\Scripts\Activate.ps1 on Windows
 pip install -r requirements.txt
 
-# (Optional) Configure LLM
-copy example.env .env
-# Edit .env — without DEEPSEEK_API_KEY the workflow runs in
-# deterministic rule-based mode with zero external dependencies.
-
-# Run the demo
-python -m app.main examples\leads.csv
+# Run the demo (no API key needed)
+python -m app.main examples/leads.csv
 
 # Run tests
-python -m pytest tests\ -v
-```
-
-### Demo Options
-
-#### Option 1 — CLI (primary)
-
-```powershell
-# Clean dataset — 12 realistic leads, all valid
-python -m app.main examples/leads_clean.csv
-
-# Mixed quality — duplicates, missing emails, varied risk/opportunity
-python -m app.main examples/leads_mixed_quality.csv
-
-# Error cases — malformed fields, blank rows, invalid emails
-python -m app.main examples/leads_error_cases.csv
-```
-
-#### Option 2 — Streamlit UI
-
-```powershell
-streamlit run demo/ui.py
-```
-
-Upload any CSV through the browser, click ▶ Run Workflow, and see results instantly.
-
-#### Option 3 — AgentOS UI (visual inspection + workflow demo)
-
-```powershell
-python -m app.agentos
-```
-
-Then open [https://os.agno.com](https://os.agno.com), click **Connect OS → Local**, and enter:
-`http://localhost:7777`
-
-You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their DeepSeek model, instructions, and registered tools (`DataQualityTool`, `FollowUpSLATool`). The workflow (`RevenueOpsCopilot`) is also registered and can be run from the UI.
-
-**Example inputs the workflow accepts:**
-
-| Input | Result |
-|---|---|
-| _(none)_ | Defaults to `examples/leads.csv` |
-| `examples/leads_clean.csv` | Processes the specified file |
-| `{"csv_path": "examples/leads_mixed_quality.csv"}` | Dict input with file path |
-
-> **Note:** The CLI is the primary path for reproducible demos (`python -m app.main <path>`). AgentOS is for visual agent inspection and quick demos. If `DEEPSEEK_API_KEY` is set in `.env`, the agents show DeepSeek as their model.
-
-### Outputs
-
-After each run, check `outputs/`:
-
-| File | Format | Purpose |
-|---|---|---|
-| `summary.md` | Markdown | Human-readable report for operators |
-| `recommendations.json` | JSON | Structured action items for downstream systems |
-| `execution_log.json` | JSON | Full metadata, Agno session/run IDs, per-agent timing |
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                RevenueOpsWorkflow                         │
-│                (agno.workflow.Workflow)                   │
-│                                                          │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐   ┌──────┐ │
-│  │  Intake   │───▶│  Classify│───▶│  Action   │──▶│Review│ │
-│  │  Agent    │    │  Agent   │    │  Agent    │   │Agent │ │
-│  └──────────┘    └──────────┘    └──────────┘   └──────┘ │
-│       │               │              │             │      │
-│       ▼               ▼              ▼             ▼      │
-│  Validate &      Urgency /       Generate        Check   │
-│  Normalise       Risk / Opp      Actions         Consist │
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │           WorkflowState (Pydantic)                │    │
-│  │  — shared, typed, serialisable                   │    │
-│  └──────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Agents
-
-| Agent | Agno Name | Function | Role |
-|---|---|---|---|
-| **Intake** | `IntakeAgent` | `intake_agent_fn` | Validate emails, detect duplicates, flag malformed records |
-| **Classify** | `ClassifyAgent` | `classify_agent_fn` | Score urgency (revenue/employee), risk (missing data, churn notes), opportunity (industry fit, growth) |
-| **Action** | `ActionAgent` | `action_agent_fn` | Map scores to concrete follow-ups with priority, assignee, due-by |
-| **Review** | `ReviewAgent` | `review_agent_fn` | Cross-check every lead has classification + recommendation; reject if inconsistent |
-
-### Orchestration
-
-The `RevenueOpsWorkflow` class extends `agno.workflow.Workflow`, providing:
-
-- **Session management** — auto-generated UUID (`session_id`) and run ID (`run_id`) tracked in execution logs
-- **Agent registry** — each agent exists as both an `agno.Agent` instance (name + instructions + tools) and a plain function
-- **Step execution** — `_step()` wraps each agent call with retry (3 attempts), per-agent timing, and status capture
-- **Output pipeline** — three artifacts written to `outputs/` after execution
-
-### Why this pattern?
-
-```
-agno.Workflow       ← class inheritance — real Agno scaffolding
-  └→ __init__()     ← calls set_session_id(), set_workflow_id(), initialize_memory()
-  └→ run_sync()     ← static factory: create → execute → return state
-  └→ _execute()     ← core pipeline with retry + timing + outputs
-  └→ _step()        ← agent call wrapper with retry loop
-```
-
-Each agent function is deterministic and stateless — no API key needed. When `DEEPSEEK_API_KEY` is configured, the `agno.Agent` wrappers can be used with `agent.run()` for LLM-powered reasoning instead.
-
----
-
-## Project Structure
-
-```
-agno-takehome/
-├── app/
-│   ├── main.py              # CLI entrypoint (argparse + dotenv)
-│   ├── agents/
-│   │   ├── __init__.py
-│   │   └── team.py          # 4 agents as functions + agno.Agent wrappers
-│   ├── models/
-│   │   ├── __init__.py
-│   │   └── schemas.py       # All Pydantic types (9 models)
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── data_quality.py   # DataQualityTool (email, name, duplicate validation)
-│   │   └── follow_up_sla.py  # FollowUpSLATool (deadline + priority mapping)
-│   └── workflows/
-│       ├── __init__.py
-│       └── workflow.py      # RevenueOpsWorkflow (agno.Workflow subclass)
-├── examples/
-│   └── leads.csv            # 10 sample leads
-├── outputs/                 # Generated artifacts + lead cache (gitignored)
-├── tests/
-│   └── test_workflow.py     # 12 tests — integration, edge cases, retry, outputs, error-cases CSV, default-run
-├── .gitignore
-├── example.env
-├── requirements.txt
-├── RUBRIC.md                # Assignment grading rubric
-└── README.md
-```
-
-**~12 core source files.**  The entire project can be read and understood in under 10 minutes.
-
----
-
-## Design Decisions
-
-### Real Agno integration (not fake)
-
-The project imports and uses Agno at three levels:
-
-1. **`RevenueOpsWorkflow`** extends `agno.workflow.Workflow` — the base class provides session_id generation, run tracking, and execution metadata scaffolding.
-2. **Each agent** is instantiated as `agno.Agent(name=..., instructions=..., tools=...)` — real instances with role descriptions and registered `Toolkit` subclasses (
-   `DataQualityTool` on IntakeAgent, `FollowUpSLATool` on ActionAgent).
-3. **Execution log** includes `workflow.name`, `session_id`, `run_id`, and per-agent `agno_name` — proving real orchestration.
-
-In demo mode the rule-based functions are called directly (deterministic, no API key). With `DEEPSEEK_API_KEY` set, the workflow can switch to `agent.run()` for LLM-powered reasoning.
-
-### Why not use `agent.run()`?
-
-`agno.Agent.run()` requires an LLM model (defaults to OpenAI GPT-4o). For a demo that must work locally without any API key, calling the typed functions directly is the practical choice. The agent wrappers are real — they just aren't invoked through the LLM path in demo mode.
-
-### Typed state everywhere
-
-Every agent receives and returns `WorkflowState`, a Pydantic model with:
-- `list[LeadRecord]` — ingested leads
-- `dict[str, ClassificationResult]` — indexed classifications  
-- `list[ActionRecommendation]` — sorted recommendations
-- `ExecutionMetrics` — timing, status, errors
-
-No "stringly typed" handoffs. Every data structure is validated and serialisable.
-
-### Retry with real timing
-
-The `_step()` method tracks:
-- **Overall duration** across all retry attempts (not just the last)
-- **Per-attempt timing** logged at WARNING level on failure
-- **Agent status** (`success` / `failure`) in both the summary and execution log
-
-### Resilience
-
-| Scenario | Handling |
-|---|---|
-| Malformed CSV row | Skipped individually, error logged, file continues |
-| Missing columns | Defaults to `None` / `""` |
-| Empty file | Zero leads processed, review rejects, clear error |
-| Invalid email | Flagged with specific error, lead marked invalid |
-| Duplicate company (within file) | Second instance marked `duplicate` |
-| Duplicate company (cross-session) | Detected via `outputs/lead_cache.json`, logged for awareness |
-| Agent exception | Retried up to 3 times with overall + per-attempt timing |
-| All retries exhausted | Agent marked `failure`, self-correction loop re-runs action agent |
-| Review rejection | Self-correction loop re-runs action agent to repair recommendations |
-| Pydantic validation errors | Clean one-line message (no raw error dumps or URLs) |
-
----
-
-## Testing
-
-```
 python -m pytest tests/ -v
 ```
 
-12 tests covering:
+**Optional:** Copy `example.env` to `.env` and set `DEEPSEEK_API_KEY` to register the agents with a real LLM model (visible in AgentOS). The workflow itself stays deterministic either way.
 
-| Test | What it verifies |
+## Demo Paths
+
+| Path | Command | What it shows |
+|---|---|---|
+| **CLI** (primary) | `python -m app.main examples/leads.csv` | Full pipeline, structured logging, exit codes |
+| **Streamlit** | `streamlit run demo/ui.py` | Browser upload, results table, agent timing |
+| **AgentOS** | `python -m app.agentos` → connect to `localhost:7777` at [os.agno.com](https://os.agno.com) | Visual agent/team inspection, workflow execution from UI |
+
+Each path runs the same pipeline. The CLI is the ground-truth demo — deterministic, no browser needed, clean terminal output.
+
+## Multi-Agent Architecture
+
+```
+CSV ──▶ IntakeAgent ──▶ ClassifyAgent ──▶ ActionAgent ──▶ ReviewAgent ──▶ outputs/
+            │                │                 │               │
+            ▼                ▼                 ▼               ▼
+        Validate &       Urgency /          Generate         Cross-check
+        Normalise        Risk / Opp         Actions          + self-correct
+```
+
+Four agents, each a standalone function operating on a shared typed state object. No agent calls another directly — the orchestrator (`RevenueOpsWorkflow`) passes state between them. This keeps each agent testable in isolation and the pipeline easy to trace.
+
+### Agent Responsibilities
+
+| Agent | What it does | Input | Output |
+|---|---|---|---|
+| **IntakeAgent** | Validates emails, detects duplicates, flags malformed records | `list[LeadRecord]` | `list[LeadRecord]` with status flags + validation errors |
+| **ClassifyAgent** | Scores urgency (revenue/employees), risk (missing data/churn), opportunity (industry/growth) | Validated leads | `dict[str, ClassificationResult]` indexed by company name |
+| **ActionAgent** | Maps classifications to concrete follow-up actions with priority, assignee, and due-by window | Classifications | `list[ActionRecommendation]` sorted by priority |
+| **ReviewAgent** | Cross-checks every lead has a classification and recommendation. Rejects inconsistent output, triggering a self-correction loop | Full state | `review_approved: bool` + review notes |
+
+Each agent also exists as a real `agno.Agent` instance with a name, role-specific instructions, and registered `Toolkit` subclasses. In the current deterministic mode the orchestrator calls the plain functions directly. With `DEEPSEEK_API_KEY` set, the architecture supports swapping to `agent.run()` for LLM-powered reasoning — same interface, different implementation.
+
+### Self-Correction Loop
+
+```
+ActionAgent ──▶ ReviewAgent
+    ▲               │
+    └── re-run ◀────┘ (if rejected, up to 2 attempts)
+```
+
+If ReviewAgent finds missing classifications or inconsistent recommendations, it sets `review_approved = False` and the orchestrator re-runs ActionAgent. This catches classification gaps and empty-action edge cases without operator intervention.
+
+## Typed State & Orchestration
+
+All inter-agent communication uses `WorkflowState`, a single Pydantic model:
+
+```python
+class WorkflowState(BaseModel):
+    leads: list[LeadRecord]
+    classifications: dict[str, ClassificationResult]
+    recommendations: list[ActionRecommendation]
+    review_notes: str
+    review_approved: bool
+    metrics: ExecutionMetrics
+```
+
+No dicts, no string munging, no implicit contracts. Every agent takes `WorkflowState` and returns `WorkflowState`. The orchestrator owns the flow:
+
+```
+RevenueOpsWorkflow._execute()
+  ├── _step("load_csv", ...)       # CSV → LeadRecord objects
+  ├── _step("intake", ...)         # Validate + deduplicate
+  ├── _step("classify", ...)       # Score urgency/risk/opportunity
+  ├── _step("action", ...)         # Generate recommendations
+  └── self-correction loop (max 2):
+      ├── _step("review", ...)     # Validate consistency
+      └── _step("action", ...)     # Repair if rejected
+```
+
+`_step()` wraps every call with retry (3 attempts), per-attempt timing, overall duration tracking, and status capture.
+
+## Agno Integration — Real, Not Fake
+
+The project uses real Agno constructs at every level:
+
+1. **`RevenueOpsWorkflow(Workflow)`** — inherits session management, run IDs, AgentOS registration, and the `deep_copy()` pattern for request isolation
+2. **`agno.Agent` instances** — each with a name, `instructions`, `description`, model config, and registered `Toolkit` tools
+3. **`agno.tools.Toolkit` subclasses** — `DataQualityTool` on IntakeAgent, `FollowUpSLATool` on ActionAgent, `RunWorkflowTool` for AgentOS chat
+4. **`WorkflowRunOutput`** — the standard Agno return type for UI integration (both streaming and non-streaming paths supported)
+
+The execution log captures `workflow.name`, `session_id`, `run_id`, and per-agent Agno names — traceable end-to-end.
+
+## Tools
+
+### DataQualityTool (`agno.tools.Toolkit`)
+Registered on IntakeAgent. Three functions:
+- `validate_email(email)` — regex-based format check
+- `validate_company_name(name)` — presence check
+- `check_duplicate(name, seen)` — intra-batch dedup
+
+### FollowUpSLATool (`agno.tools.Toolkit`)
+Registered on ActionAgent. Two functions:
+- `recommend_deadline(urgency, risk, opportunity)` — maps classification to a 24h/48h/72h/1-week/2-week window
+- `recommend_priority_note(urgency, risk, opportunity)` — generates a one-line rationale
+
+### RunWorkflowTool (`agno.tools.Toolkit`)
+Registered on IntakeAgent. Bridges AgentOS chat to the CSV pipeline — lets users type "process examples/leads.csv" in AgentOS chat and get results.
+
+## Observability & Reliability
+
+**Structured logging:** Every agent call, retry, timing, and error is logged at the appropriate level. The CLI shows a clean play-by-play; `--verbose` exposes debug detail including agent instructions.
+
+**Per-agent timing:** Each agent's execution time is measured and stored in `ExecutionMetrics.agent_timings_ms`. Visible in CLI output, Streamlit metrics cards, and the JSON execution log.
+
+**Execution log (`outputs/execution_log.json`):** Full metadata per run — workflow name, Agno session/run IDs, per-agent timing and status, lead/recommendation counts, review outcome.
+
+**Three output artifacts per run:**
+
+| File | Purpose |
 |---|---|
-| `test_workflow_end_to_end` | Full pipeline: 3 leads → 2 valid → classified → recommended → approved |
-| `test_empty_csv` | Header-only CSV → 0 leads → review rejects |
-| `test_malformed_csv` | Invalid revenue row skipped, valid row processed |
-| `test_intake_validation` | Direct intake logic: missing name + bad email flagged |
-| `test_review_empty_input` | Empty WorkflowState → rejected |
-| `test_retry_on_agent_failure` | Agent fails twice, succeeds on third → `success` status |
-| `test_retry_exhaustion` | Agent always fails → `failure` status after 3 attempts |
-| `test_output_artifacts_generated` | All 3 output files created with valid content |
-| `test_review_rejects_missing_classifications` | No-op classify → review rejects with "missing classification" |
-| `test_review_rejects_empty_workflow` | No leads at all → rejected |
-| `test_error_cases_csv_resilience` | 15-row error CSV: 3 parse errors, 6 valid, 6 invalid, no crash |
-| `test_workflow_run_default_csv` | `workflow.run(input=None)` defaults to `examples/leads.csv` |
+| `summary.md` | Operator-facing markdown report with results table |
+| `recommendations.json` | Machine-readable action items for downstream systems |
+| `execution_log.json` | Full traceability: session/run IDs, agent timing, errors |
 
----
+## Error Handling & Resilience
+
+| Scenario | Behaviour |
+|---|---|
+| Malformed CSV row | Skipped individually, error logged, processing continues |
+| Missing columns | Default to `None`/`""` |
+| Empty file | 0 leads → ReviewAgent rejects, clear error message |
+| Invalid email | Flagged with specific error, lead marked invalid |
+| Duplicate company (same file) | Second instance marked `duplicate` |
+| Duplicate company (cross-session) | Detected via `outputs/lead_cache.json` |
+| Agent exception | Retried up to 3 times with per-attempt + overall timing |
+| All retries exhausted | Agent marked `failure`, self-correction loop triggers |
+| Review rejection | ActionAgent re-run up to 2 additional times |
+| Pydantic validation error | Clean one-line message — no raw stack traces |
+
+## Testing
+
+12 pytest tests, all passing:
+
+```
+tests/test_workflow.py::test_workflow_end_to_end
+tests/test_workflow.py::test_empty_csv
+tests/test_workflow.py::test_malformed_csv
+tests/test_workflow.py::test_intake_validation
+tests/test_workflow.py::test_review_empty_input
+tests/test_workflow.py::test_retry_on_agent_failure
+tests/test_workflow.py::test_retry_exhaustion
+tests/test_workflow.py::test_output_artifacts_generated
+tests/test_workflow.py::test_review_rejects_missing_classifications
+tests/test_workflow.py::test_review_rejects_empty_workflow
+tests/test_workflow.py::test_error_cases_csv_resilience
+tests/test_workflow.py::test_workflow_run_default_csv
+```
+
+Covers: end-to-end integration, empty/malformed CSVs, retry behaviour (success and exhaustion), output artifact generation, review rejection, error-case CSV resilience, and default input handling.
+
+## Example Output
+
+Running `python -m app.main examples/leads.csv`:
+
+```
+============================================================
+Revenue Ops Copilot — workflow started
+  Agno session : (not set)
+  Input file   : examples/leads.csv
+============================================================
+  ⚙  load_csv  [attempt 1/3]
+  ✓ load_csv  completed in 1 ms
+  ⚙  IntakeAgent  [attempt 1/3]
+  ✓ IntakeAgent  completed in 0 ms
+  ⚙  ClassifyAgent  [attempt 1/3]
+  ✓ ClassifyAgent  completed in 0 ms
+  ⚙  ActionAgent  [attempt 1/3]
+  ✓ ActionAgent  completed in 0 ms
+  ⚙  ReviewAgent  [attempt 1/3]
+  ✓ ReviewAgent  completed in 0 ms
+============================================================
+Workflow complete
+  Status:      ✅ Approved
+  Total leads: 10
+  Valid:       10
+  Recs:        17
+  Duration:    3 ms
+============================================================
+```
+
+Generated `outputs/summary.md` includes a full recommendations table with priority, company, action, assignee, and due-by columns — ready for operator handoff.
+
+## Engineering Tradeoffs
+
+### Deterministic rules vs. LLM reasoning
+**Choice:** Rule-based classification functions that run in ~2ms with zero API dependencies.
+**Why:** The rubric asks for a working demo. LLM calls add latency, cost, non-determinism, and an API key requirement. The architecture cleanly separates agent *definitions* (real `agno.Agent` instances with instructions) from agent *execution* (plain functions). Swapping to LLM-powered reasoning is a one-line change per agent.
+
+### `run()` override vs. step-based configuration
+**Choice:** Override `Workflow.run()` with a custom pipeline rather than configuring `self.steps`.
+**Why:** The step-based API (`Step`, `Parallel`, `Loop`, `Router`) is powerful but heavyweight for a linear 4-agent pipeline. The custom `_execute()` + `_step()` pattern gives us retry, timing, and self-correction with ~150 lines of readable code. Tradeoff: streaming support requires a thin `arun` adapter (see `_arun_stream`).
+
+### Sequential vs. parallel agent execution
+**Choice:** Sequential.
+**Why:** 10 leads process in ~2ms. Parallelism adds complexity with no measurable benefit at this scale. The architecture supports batching — Classification is per-lead and trivially parallelisable with `ThreadPoolExecutor` if lead count grows.
+
+### No external dependencies in demo mode
+**Choice:** Runs without any API key.
+**Why:** Makes the demo reproducible anywhere. Reviewer can clone, install, run, and see results in under 30 seconds.
 
 ## Known Limitations
 
-| Limitation | Why it's acceptable | How to fix later |
+| What | Why it's fine | Production path |
 |---|---|---|
-| **Rule-based classification is simplistic** | Keeps the demo deterministic and API-key-free | Drop in an `agno.Agent` with DeepSeek for nuanced reasoning |
-| **No CRM integration** | CSV is the universal data exchange format | Add a `ClearbitTool(app/tools/)` for enrichment |
-| **No persistence between runs** | Cross-session lead cache (`outputs/lead_cache.json`) records previously seen companies | Add `agno.workflow.Workflow.storage` for full session persistence |
-| **Sequential agent execution** | 10 leads finish in ~2ms; parallelism is premature | Use `concurrent.futures` for batch classification |
-| **Dedup is name-only** | Simple and sufficient for the demo | Extend to email domain + phone matching |
+| Rule-based scoring | Deterministic, instant, API-free | Swap `AGENT_REGISTRY` functions for `agent.run()` calls |
+| No CRM integration | CSV is universal; same pipeline works with any data source | Add enrichment tool (Clearbit/Apollo pattern) |
+| Name-only dedup | Sufficient for demo-quality lead lists | Add email domain + phone fuzzy matching |
+| No persistence between runs | Cross-session cache (`lead_cache.json`) handles basic dedup | Use `Workflow.storage` for full session persistence |
+| Sequential execution | ~2ms for 10 leads | `ThreadPoolExecutor` for batch classification |
 
----
+## Why This Project Is Intentionally Compact
 
-## Build Notes — How AI Assisted (and where it didn't)
+~12 source files. ~700 lines of application code. Readable in under 10 minutes.
 
-This project was built using an AI coding assistant (the same one reading this). Here's what worked and what didn't:
+This isn't a production system — it's a demonstration of engineering judgment. The goal was to show:
 
-**What AI accelerated:**
-- **Pydantic schema scaffolding** — generating initial model definitions, field types, and validators
-- **CSV parsing edge cases** — handling BOM, empty rows, type coercion errors
-- **Rule-based scoring logic** — iterating on urgency/risk/opportunity thresholds
-- **Test fixtures** — generating realistic sample data and edge-case CSV files
-- **README structure** — producing consistent markdown with appropriate sections
+- Real framework integration without cargo-culting
+- Typed, testable inter-agent communication
+- Resilience patterns (retry, self-correction, graceful degradation)
+- Multiple execution surfaces (CLI, Streamlit, AgentOS) from a single codebase
+- The ability to identify where AI-assisted coding helps and where it doesn't
 
-**Where AI struggled / needed human correction:**
-- **Agno API version differences** — The initial code assumed `agno.Agent` was at the top-level import. It's actually `from agno.agent import Agent`. The `Workflow.run_workflow()` internally uses `_subclass_run` which caused a recursion bug when `run()` overrode the parent. This required reading the Agno source code to understand the actual call chain.
-- **Retry timing bug** — AI initially tracked only the last retry attempt's timing, not the overall duration. Fixed by adding `overall_start` before the loop.
-- **Test-scoped output directory** — AI initially assumed class-level attribute patching would work, but `__init__` was overriding it at instance level. Fixed with `getattr(self.__class__, '_output_dir_override', ...)`.
-- **Workflow exit behavior** — AI originally used `sys.exit(1)` for non-success states, which works in CLI but makes pytest fail. Fixed by separating CLI logic from workflow logic.
+Every file has a clear job. There are no abstractions waiting for a future that hasn't arrived.
 
-**What was manually verified:**
-- Full Agno class hierarchy and method resolution
-- Retry count and timing correctness
-- All 10 test assertions against actual execution output
-- File encoding edge cases (UTF-8 BOM)
-- Windows path handling
+## AI-Assisted Development Notes
 
----
+This project was built with an AI coding assistant. Here's what worked and what required human intervention:
+
+**AI was effective at:**
+- Pydantic model scaffolding and field validation
+- CSV parsing edge cases (BOM, empty rows, type coercion)
+- Rule-based scoring logic iteration (threshold tuning)
+- Test fixture generation and edge-case CSV creation
+- README structure and documentation consistency
+
+**AI required correction on:**
+- **Agno API surface** — hallucinated import paths (`agno.Agent` vs `from agno.agent import Agent`) and misunderstood the `_subclass_run` recursion pattern. Required reading the framework source.
+- **`arun` contract** — initially wrote `async def arun`, but AgentOS's streaming path calls `arun` without `await` and expects an async generator. The parent class uses `def arun` (regular function) that branches on `stream`. Fixed by matching the parent's dispatch pattern.
+- **Retry timing** — only tracked the last attempt's duration, not overall. Fixed by adding `overall_start`.
+- **Test isolation** — class-level attribute patching didn't work because `__init__` overrode it at instance level. Fixed with `getattr(self.__class__, ...)`.
+- **Exit behaviour** — used `sys.exit(1)` which breaks pytest. Separated CLI exit codes from workflow return values.
+
+**Manually verified:**
+- Full Agno MRO and method resolution order
+- Retry count correctness across all 12 test scenarios
+- UTF-8 BOM handling on Windows paths
+- AgentOS streaming and non-streaming execution paths (via TestClient)
 
 ## Future Improvements
 
-1. **LLM-powered classification** — Replace scoring rules with an `agno.Agent(model=DeepSeek())` call. The architecture supports this: just swap the function in `AGENT_REGISTRY`.
-2. **CRM enrichment tool** — Add an `EnrichmentTool` that mocks Clearbit/Apollo lookup. Demonstrates Agno tool framework.
-3. **Parallel lead processing** — Use `ThreadPoolExecutor` for batch classification across 1000+ leads.
-4. **Confidence-aware routing** — Surface low-confidence classifications (`confidence < 0.6`) for manual review.
-5. **Agno Agent OS UI** — Hook into Agno's built-in monitoring for visual execution traces.
+1. **LLM-powered classification** — swap rule functions for `agent.run()` in `AGENT_REGISTRY`. Same interface, richer reasoning.
+2. **CRM enrichment tool** — `EnrichmentTool` subclassing `agno.tools.Toolkit`, mocking Clearbit/Apollo.
+3. **Confidence threshold routing** — surface low-confidence classifications (`confidence < 0.6`) for manual operator review.
+4. **Parallel batch processing** — `ThreadPoolExecutor` for classification across 1000+ leads.
+5. **Persistent session storage** — use `Workflow.storage` with SQLite for run history and session continuity.
 
----
+## Demo Walkthrough (3–5 Minute Screen Recording)
+
+### 0:00–0:30 — Setup & Context
+- Show terminal: `git log --oneline -5` (brief commit history)
+- Show project tree: `ls app/ agents/ models/ tools/ workflows/`
+- One sentence: "Four-agent pipeline that reads a CSV, classifies leads, generates actions, and checks its own work."
+
+### 0:30–1:30 — CLI Demo (Primary Path)
+- Run: `python -m app.main examples/leads.csv`
+- Point out: structured logging, per-agent timing, retry counters
+- Show `outputs/summary.md` — operator-facing markdown with recommendations table
+- Show `outputs/recommendations.json` — machine-readable output
+- Show `outputs/execution_log.json` — Agno session/run IDs, agent timing, errors
+
+### 1:30–2:00 — Resilience Demo
+- Run: `python -m app.main examples/leads_error_cases.csv`
+- Point out: malformed rows skipped, valid rows still processed, no crash
+- Run: `python -m pytest tests/ -v` (12 passing)
+- Highlight one test: `test_retry_on_agent_failure` or `test_error_cases_csv_resilience`
+
+### 2:00–2:30 — Streamlit UI
+- Run: `streamlit run demo/ui.py`
+- Upload `examples/leads.csv` through browser
+- Click ▶ Run Workflow
+- Show: metrics cards, recommendations dataframe, agent timing
+
+### 2:30–3:30 — AgentOS Integration
+- Run: `python -m app.agentos`
+- Open browser: connect to `localhost:7777` at os.agno.com
+- Show four agents visible in the UI (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent)
+- Show each agent's instructions and registered tools
+- Run workflow from AgentOS: type `examples/leads.csv` in the message box
+- Show result: markdown summary with recommendations
+
+### 3:30–4:00 — Code Walkthrough (Key Files)
+- Open `app/workflows/workflow.py` — show `_execute()` pipeline, `_step()` retry wrapper, self-correction loop
+- Open `app/agents/team.py` — show `AGENT_REGISTRY` pattern (agno.Agent + plain function), one agent function
+- Open `app/models/schemas.py` — show `WorkflowState`, typed inter-agent contract
+- Open `app/tools/data_quality.py` — show `DataQualityTool(Toolkit)` registration
+
+### 4:00–4:30 — Engineering Decisions
+- Why deterministic: runs in ~2ms, no API key, reproducible anywhere
+- Why custom `_execute()` over `self.steps`: simpler for a linear pipeline, gives retry + timing control
+- Why typed state: every agent receives and returns `WorkflowState` — testable, traceable, no dicts
+- Why compact: ~12 files, ~700 lines, readable in 10 minutes
+
+### 4:30–5:00 — Close
+- Quick mention: self-correction loop (ReviewAgent → re-run ActionAgent)
+- Quick mention: AgentOS streaming fix (the `arun` contract adaptation)
+- "Happy to dive deeper into any part."
 
 ## License
 
-This project is for evaluation purposes as part of a take-home exercise.
+For evaluation purposes as part of a take-home exercise.

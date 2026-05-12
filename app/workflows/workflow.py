@@ -129,13 +129,59 @@ class RevenueOpsWorkflow(AgnoWorkflow):
 
         return WorkflowRunOutput(content=summary)
 
-    async def arun(  # type: ignore[override]
+    def arun(  # type: ignore[override]
         self,
         input: str | dict | None = None,
+        stream: bool | None = None,
         **kwargs,
-    ) -> WorkflowRunOutput:
-        """Async variant called by AgentOS. Delegates to ``run()``."""
+    ):
+        """Execute the workflow (sync or streaming) — called by AgentOS.
+
+        **Important**: This must be a regular ``def`` (not ``async def``)
+        to match the parent ``Workflow.arun`` contract.  AgentOS calls
+        ``workflow.arun(input=..., stream=True)`` **without** ``await``
+        and then ``async for``-iterates the result, so we must return an
+        async generator when streaming.
+
+        When ``stream=False`` (or not set), returns a coroutine that
+        resolves to ``WorkflowRunOutput`` so the caller can ``await`` it.
+        """
+        if stream:
+            return self._arun_stream(input=input)
+        return self._arun_coro(input=input)
+
+    async def _arun_coro(self, input: str | dict | None = None) -> WorkflowRunOutput:
+        """Async helper: runs the workflow and returns a ``WorkflowRunOutput``."""
         return self.run(input=input)
+
+    async def _arun_stream(self, input: str | dict | None = None):
+        """Async generator: yields ``WorkflowStartedEvent`` and
+        ``WorkflowCompletedEvent`` (or ``WorkflowErrorEvent``) for the
+        AgentOS SSE streaming path."""
+        from agno.run.workflow import (
+            WorkflowCompletedEvent,
+            WorkflowErrorEvent,
+            WorkflowStartedEvent,
+        )
+
+        yield WorkflowStartedEvent(
+            workflow_id=self.id,
+            workflow_name=self.name,
+        )
+        try:
+            result = self.run(input=input)
+            yield WorkflowCompletedEvent(
+                content=result.content,
+                content_type="str",
+                workflow_id=self.id,
+                workflow_name=self.name,
+            )
+        except Exception as exc:
+            yield WorkflowErrorEvent(
+                error=str(exc),
+                workflow_id=self.id,
+                workflow_name=self.name,
+            )
 
     def _execute(self, csv_path: str | Path) -> WorkflowState:
         """Core execution logic."""
