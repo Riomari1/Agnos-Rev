@@ -9,8 +9,10 @@ Revenue Ops Copilot ingests a CSV of leads, validates and deduplicates records,
 classifies urgency/risk/opportunity, recommends follow-up actions, reviews the
 result, and writes operator-ready output artifacts.
 
-The CLI is the ground-truth path. Streamlit and AgentOS use the same workflow
-and agent definitions.
+The CLI is the ground-truth path. Streamlit uses the same workflow and agent
+definitions. AgentOS/Agno registration is present, but the AgentOS UI workflow
+path is currently not working reliably, so it should not be used as the primary
+demo path.
 
 ## Quick Start
 
@@ -37,7 +39,7 @@ Runtime modes are controlled by `REVENUE_OPS_AGENT_MODE`:
 |---|---|
 | `auto` | Default. Uses DeepSeek when `DEEPSEEK_API_KEY` is set; otherwise local fallback. |
 | `deepseek` | Always builds Agno agents with `DeepSeek`; falls back if the API returns no structured tool output. |
-| `local` | Deterministic local runtime for tests, offline demos, and fast CLI smoke checks. |
+| `local` | Deterministic in-process runtime: no DeepSeek network call; rule-based validation/classification/action/review using the same typed workflow. Used for tests, offline demos, and fast CLI smoke checks. |
 
 The local fallback is not the main product path. It is a resilience path so the
 CLI remains runnable during network/API failures and so tests do not depend on
@@ -49,7 +51,7 @@ live model access.
 |---|---|---|
 | CLI | `python -m app.main examples/leads.csv` | Primary demo with logs, exit codes, and outputs |
 | Streamlit | `streamlit run demo/ui.py` | Upload CSV, inspect metrics and recommendations |
-| AgentOS | `python -m app.agentos`, then connect at `os.agno.com` to `localhost:7777` | Inspect the four registered Agno agents and workflow |
+| AgentOS / Agno | `python -m app.agentos`, then connect at `os.agno.com` to `localhost:7777` | Known issue: agents register, but the AgentOS UI workflow path is currently not working reliably |
 
 For a fast offline demo:
 
@@ -78,7 +80,9 @@ class WorkflowState(BaseModel):
 
 The same `AgentSpec` definitions power CLI execution, Streamlit, tests, and
 AgentOS registration. Each agent is created as a real `agno.Agent` with a
-DeepSeek model and role-specific tools.
+DeepSeek model and role-specific tools. Current limitation: the Agno/AgentOS UI
+workflow path is not reliable enough for evaluation, so the CLI remains the
+supported end-to-end runner.
 
 ## Agents
 
@@ -192,8 +196,9 @@ Workflow complete
   formal evaluator.
 - The workflow is sequential. For this take-home scale, clarity and traceability
   matter more than parallel throughput.
-- AgentOS is included for inspection and workflow execution, but CLI remains the
-  polished primary demo.
+- AgentOS/Agno is included for registration and inspection work, but its UI
+  workflow execution path is currently not working reliably. CLI remains the
+  supported primary demo.
 
 ## AI-Assisted Build Notes
 
