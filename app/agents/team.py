@@ -10,6 +10,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env immediately so DEEPSEEK_API_KEY is available regardless of
+# how this module is imported (CLI, Streamlit, AgentOS, tests, etc.)
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
 
 from agno.agent import Agent as AgnoAgent
 from agno.models.deepseek import DeepSeek
@@ -239,8 +250,6 @@ def review_agent_fn(state: WorkflowState) -> WorkflowState:
 
 def _run_with_tools(agent: AgnoAgent, tools: Toolkit, prompt: str) -> None:
     """Temporarily add *tools* to *agent*, call agent.run(prompt), then remove."""
-    from agno.tools import Toolkit as Tk
-
     agent.tools = list(agent.tools or []) + [tools]
     try:
         agent.run(input=prompt)
