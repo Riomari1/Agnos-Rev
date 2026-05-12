@@ -98,7 +98,16 @@ class RevenueOpsWorkflow(AgnoWorkflow):
             self._step(state, "intake", *AGENT_REGISTRY["intake"])
             self._step(state, "classify", *AGENT_REGISTRY["classify"])
             self._step(state, "action", *AGENT_REGISTRY["action"])
-            self._step(state, "review", *AGENT_REGISTRY["review"])
+            # Self-correction loop: if review flags issues, re-run action once
+            for iteration in range(2):
+                self._step(state, "review", *AGENT_REGISTRY["review"])
+                if state.review_approved:
+                    break
+                logger.info(
+                    "  Review not approved — re-running action agent (iteration %d)",
+                    iteration + 1,
+                )
+                self._step(state, "action", *AGENT_REGISTRY["action"])
 
         except Exception:
             error = traceback.format_exc()

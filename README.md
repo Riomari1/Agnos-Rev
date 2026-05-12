@@ -150,7 +150,9 @@ agno-takehome/
 │   │   ├── __init__.py
 │   │   └── schemas.py       # All Pydantic types (9 models)
 │   ├── tools/
-│   │   └── __init__.py      # Extensible tool registry
+│   │   ├── __init__.py
+│   │   ├── data_quality.py   # DataQualityTool (email, name, duplicate validation)
+│   │   └── follow_up_sla.py  # FollowUpSLATool (deadline + priority mapping)
 │   └── workflows/
 │       ├── __init__.py
 │       └── workflow.py      # RevenueOpsWorkflow (agno.Workflow subclass)
@@ -166,7 +168,7 @@ agno-takehome/
 └── README.md
 ```
 
-**~10 core source files.**  The entire project can be read and understood in under 10 minutes.
+**~12 core source files.**  The entire project can be read and understood in under 10 minutes.
 
 ---
 
@@ -177,7 +179,8 @@ agno-takehome/
 The project imports and uses Agno at three levels:
 
 1. **`RevenueOpsWorkflow`** extends `agno.workflow.Workflow` — the base class provides session_id generation, run tracking, and execution metadata scaffolding.
-2. **Each agent** is instantiated as `agno.Agent(name=..., instructions=..., tools=[])` — real instances with role descriptions.
+2. **Each agent** is instantiated as `agno.Agent(name=..., instructions=..., tools=...)` — real instances with role descriptions and registered `Toolkit` subclasses (
+   `DataQualityTool` on IntakeAgent, `FollowUpSLATool` on ActionAgent).
 3. **Execution log** includes `workflow.name`, `session_id`, `run_id`, and per-agent `agno_name` — proving real orchestration.
 
 In demo mode the rule-based functions are called directly (deterministic, no API key). With `DEEPSEEK_API_KEY` set, the workflow can switch to `agent.run()` for LLM-powered reasoning.
@@ -214,7 +217,8 @@ The `_step()` method tracks:
 | Duplicate company (within file) | Second instance marked `duplicate` |
 | Duplicate company (cross-session) | Detected via `outputs/lead_cache.json`, logged for awareness |
 | Agent exception | Retried up to 3 times with overall + per-attempt timing |
-| All retries exhausted | Agent marked `failure`, workflow continues, review catches it |
+| All retries exhausted | Agent marked `failure`, self-correction loop re-runs action agent |
+| Review rejection | Self-correction loop re-runs action agent to repair recommendations |
 | Pydantic validation errors | Clean one-line message (no raw error dumps or URLs) |
 
 ---

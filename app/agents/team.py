@@ -36,6 +36,8 @@ from app.models.schemas import (
     UrgencyLevel,
     WorkflowState,
 )
+from app.tools.data_quality import DataQualityTool
+from app.tools.follow_up_sla import FollowUpSLATool
 
 logger = logging.getLogger("agents")
 
@@ -180,8 +182,9 @@ def review_agent_fn(state: WorkflowState) -> WorkflowState:
     missing_recommendations = classified_companies - recommended_companies
     if missing_recommendations:
         notes.append(
-            f"INFO: {len(missing_recommendations)} classified lead(s) have no recommendations: {missing_recommendations}"
+            f"WARNING: {len(missing_recommendations)} classified lead(s) need recommendations: {missing_recommendations}"
         )
+        approved = False
 
     if state.metrics.invalid_leads > 0:
         notes.append(
@@ -264,7 +267,7 @@ intake = AgnoAgent(
     instructions=_INTAKE_INSTRUCTIONS,
     description="Validates and normalises incoming CSV lead records.",
     model=_DEFAULT_MODEL,
-    tools=[],
+    tools=[DataQualityTool()],
 )
 
 classify = AgnoAgent(
@@ -280,7 +283,7 @@ action = AgnoAgent(
     instructions=_ACTION_INSTRUCTIONS,
     description="Generates prioritised follow-up actions for each lead.",
     model=_DEFAULT_MODEL,
-    tools=[],
+    tools=[FollowUpSLATool()],
 )
 
 review = AgnoAgent(
