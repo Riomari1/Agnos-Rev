@@ -134,8 +134,8 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         input: str | dict | None = None,
         **kwargs,
     ) -> WorkflowRunOutput:
-        """Async variant called by AgentOS. Delegates to sync ``run()``."""
-        return self.run(input=input, **kwargs)
+        """Async variant called by AgentOS. Delegates to ``run()``."""
+        return self.run(input=input)
 
     def _execute(self, csv_path: str | Path) -> WorkflowState:
         """Core execution logic."""
