@@ -21,7 +21,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agno.run.workflow import WorkflowCompletedEvent, WorkflowRunOutput
+from agno.run.workflow import WorkflowRunOutput
 from agno.workflow import Workflow as AgnoWorkflow
 from pydantic import ValidationError
 
@@ -134,21 +134,8 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         input: str | dict | None = None,
         **kwargs,
     ) -> WorkflowRunOutput:
-        """Async variant called by AgentOS.
-
-        The AgentOS UI always sends ``stream=true``, so we must yield
-        a ``WorkflowCompletedEvent`` that the ``workflow_response_streamer``
-        can format as SSE for the dashboard.
-        """
-        result = self.run(input=input)
-        yield WorkflowCompletedEvent(
-            run_id=kwargs.get("run_id", ""),
-            workflow_id=getattr(self, "id", ""),
-            session_id=getattr(self, "session_id", None),
-            content=result.content,
-            content_type="text",
-        )
-        return
+        """Async variant called by AgentOS. Delegates to ``run()``."""
+        return self.run(input=input)
 
     def _execute(self, csv_path: str | Path) -> WorkflowState:
         """Core execution logic."""

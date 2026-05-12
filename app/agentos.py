@@ -25,14 +25,19 @@ if _env_path.exists():
 else:
     load_dotenv()
 
+from agno.db.sqlite import SqliteDb
 from agno.os import AgentOS
 
 from app.agents.team import action, classify, intake, review
 from app.workflows.workflow import RevenueOpsWorkflow
 
+_output_dir = Path(__file__).resolve().parent.parent / "outputs"
+_output_dir.mkdir(exist_ok=True)
+
 agent_os = AgentOS(
     agents=[intake, classify, action, review],
     workflows=[RevenueOpsWorkflow()],
+    db=SqliteDb(db_file=str(_output_dir / "agentos.db")),
 )
 
 app = agent_os.get_app()
