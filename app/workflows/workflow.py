@@ -128,6 +128,14 @@ class RevenueOpsWorkflow(AgnoWorkflow):
 
         return WorkflowRunOutput(content=summary)
 
+    async def arun(  # type: ignore[override]
+        self,
+        input: str | dict | None = None,
+        **kwargs,
+    ) -> WorkflowRunOutput:
+        """Async variant called by AgentOS. Delegates to sync ``run()``."""
+        return self.run(input=input, **kwargs)
+
     def _execute(self, csv_path: str | Path) -> WorkflowState:
         """Core execution logic."""
         state = WorkflowState(input_path=str(csv_path))
