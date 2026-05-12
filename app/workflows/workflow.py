@@ -86,7 +86,8 @@ class RevenueOpsWorkflow(AgnoWorkflow):
         csv_path: str | None = None
 
         if isinstance(input, str):
-            csv_path = input
+            # Treat as CSV path only if it ends with .csv; otherwise use default
+            csv_path = input if input.strip().lower().endswith(".csv") else None
         elif isinstance(input, dict):
             csv_path = input.get("csv_path") or input.get("input") or None
 

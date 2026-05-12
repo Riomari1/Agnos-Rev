@@ -5,7 +5,7 @@ Launches a FastAPI app that the Agno dashboard connects to.
 
 Usage:
     python -m app.agentos
-    # Then open https://app.agno.com and connect to localhost:7777
+    # Then open https://os.agno.com and connect to localhost:7777
 
 Note: The workflow is best experienced through the CLI
 (``python -m app.main``) or Streamlit UI (``streamlit run demo/ui.py``).
