@@ -149,9 +149,9 @@ agno-takehome/
 │       └── workflow.py      # RevenueOpsWorkflow (agno.Workflow subclass)
 ├── examples/
 │   └── leads.csv            # 10 sample leads
-├── outputs/                 # Generated artifacts (gitignored)
+├── outputs/                 # Generated artifacts + lead cache (gitignored)
 ├── tests/
-│   └── test_workflow.py     # 10 tests — integration, edge cases, retry, outputs
+│   └── test_workflow.py     # 11 tests — integration, edge cases, retry, outputs, error-cases CSV
 ├── .gitignore
 ├── example.env
 ├── requirements.txt
@@ -204,9 +204,11 @@ The `_step()` method tracks:
 | Missing columns | Defaults to `None` / `""` |
 | Empty file | Zero leads processed, review rejects, clear error |
 | Invalid email | Flagged with specific error, lead marked invalid |
-| Duplicate company | Second instance marked `duplicate` |
-| Agent exception | Retried up to 3 times with exponential timing capture |
+| Duplicate company (within file) | Second instance marked `duplicate` |
+| Duplicate company (cross-session) | Detected via `outputs/lead_cache.json`, logged for awareness |
+| Agent exception | Retried up to 3 times with overall + per-attempt timing |
 | All retries exhausted | Agent marked `failure`, workflow continues, review catches it |
+| Pydantic validation errors | Clean one-line message (no raw error dumps or URLs) |
 
 ---
 
@@ -216,7 +218,7 @@ The `_step()` method tracks:
 python -m pytest tests/ -v
 ```
 
-10 tests covering:
+11 tests covering:
 
 | Test | What it verifies |
 |---|---|
@@ -230,6 +232,7 @@ python -m pytest tests/ -v
 | `test_output_artifacts_generated` | All 3 output files created with valid content |
 | `test_review_rejects_missing_classifications` | No-op classify → review rejects with "missing classification" |
 | `test_review_rejects_empty_workflow` | No leads at all → rejected |
+| `test_error_cases_csv_resilience` | 15-row error CSV: 3 parse errors, 6 valid, 6 invalid, no crash |
 
 ---
 
@@ -239,7 +242,7 @@ python -m pytest tests/ -v
 |---|---|---|
 | **Rule-based classification is simplistic** | Keeps the demo deterministic and API-key-free | Drop in an `agno.Agent` with DeepSeek for nuanced reasoning |
 | **No CRM integration** | CSV is the universal data exchange format | Add a `ClearbitTool(app/tools/)` for enrichment |
-| **No persistence between runs** | Meets "no database" rule | Add `agno.workflow.Workflow.storage` for session persistence |
+| **No persistence between runs** | Cross-session lead cache (`outputs/lead_cache.json`) records previously seen companies | Add `agno.workflow.Workflow.storage` for full session persistence |
 | **Sequential agent execution** | 10 leads finish in ~2ms; parallelism is premature | Use `concurrent.futures` for batch classification |
 | **Dedup is name-only** | Simple and sufficient for the demo | Extend to email domain + phone matching |
 
