@@ -76,29 +76,57 @@ class RevenueOpsWorkflow(AgnoWorkflow):
     def run(self, input: str | dict | None = None, **kwargs) -> WorkflowRunOutput:
         """Run method called by the AgentOS UI.
 
-        ``input`` is the message from the UI (typically ``None`` or ``{}``).
-        We default to ``examples/leads.csv`` so the workflow is immediately
-        runnable from the dashboard.
+        Accepts:
+        - ``None`` or ``{}`` → defaults to ``examples/leads.csv``
+        - ``"examples/leads.csv"`` → used as CSV path
+        - ``{"csv_path": "examples/leads.csv"}`` → csv_path extracted from dict
 
-        Returns a ``WorkflowRunOutput`` with execution summary text.
+        Returns a ``WorkflowRunOutput`` with a markdown summary.
         """
-        csv_path = "examples/leads.csv"
+        csv_path: str | None = None
+
+        if isinstance(input, str):
+            csv_path = input
+        elif isinstance(input, dict):
+            csv_path = input.get("csv_path") or input.get("input") or None
+
+        if not csv_path:
+            csv_path = "examples/leads.csv"
+
+        resolved = Path(csv_path)
+        if not resolved.exists():
+            return WorkflowRunOutput(
+                content=f"❌ File not found: `{csv_path}`\n\nUse the CLI for custom paths: `python -m app.main <path>`"
+            )
+        if resolved.suffix.lower() != ".csv":
+            return WorkflowRunOutput(
+                content=f"❌ Unsupported file type: `{resolved.suffix}`. Please provide a `.csv` file."
+            )
 
         try:
             state = self._execute(csv_path)
-            summary = (
-                f"Revenue Ops Copilot — {csv_path}\n"
-                f"Status: {'Approved' if state.review_approved else 'Needs review'}\n"
-                f"Leads: {state.metrics.total_leads} total, "
-                f"{state.metrics.valid_leads} valid, {state.metrics.invalid_leads} invalid\n"
-                f"Recommendations: {len(state.recommendations)}\n"
-                f"Duration: {state.metrics.total_duration_ms:.0f} ms"
+        except Exception as e:
+            return WorkflowRunOutput(content=f"❌ Workflow failed: {e}")
+
+        summary = (
+            f"### Revenue Ops Copilot — Results\n\n"
+            f"**Input:** `{csv_path}`\n"
+            f"**Status:** {'✅ Approved' if state.review_approved else '❌ Needs review'}\n"
+            f"**Leads:** {state.metrics.total_leads} total, "
+            f"{state.metrics.valid_leads} valid, {state.metrics.invalid_leads} invalid\n"
+            f"**Recommendations:** {len(state.recommendations)}\n"
+            f"**Duration:** {state.metrics.total_duration_ms:.0f} ms\n"
+        )
+        if state.recommendations:
+            summary += "\n**Top actions:**\n"
+            for r in state.recommendations[:5]:
+                summary += f"- [{r.priority}] {r.company_name}: {r.action}\n"
+        if state.metrics.errors:
+            summary += "\n**Errors:**\n" + "\n".join(
+                f"- {e}" for e in state.metrics.errors[:3]
             )
-            return WorkflowRunOutput(content=summary)
-        except FileNotFoundError:
-            return WorkflowRunOutput(
-                content=f"File not found: {csv_path}. Use CLI for custom paths."
-            )
+
+        return WorkflowRunOutput(content=summary)
 
     def _execute(self, csv_path: str | Path) -> WorkflowState:
         """Core execution logic."""

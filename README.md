@@ -65,12 +65,20 @@ Upload any CSV through the browser, click ▶ Run Workflow, and see results inst
 python -m app.agentos
 ```
 
-Then open [https://app.agno.com](https://app.agno.com), click **Connect OS → Local**, and enter:
+Then open [https://os.agno.com](https://os.agno.com), click **Connect OS → Local**, and enter:
 `http://localhost:7777`
 
-You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their DeepSeek model, instructions, and registered tools (`DataQualityTool`, `FollowUpSLATool`). The workflow (`RevenueOpsCopilot`) is also registered and can be run from the UI — it will default to processing `examples/leads.csv`.
+You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their DeepSeek model, instructions, and registered tools (`DataQualityTool`, `FollowUpSLATool`). The workflow (`RevenueOpsCopilot`) is also registered and can be run from the UI.
 
-> **Note:** The CLI is the primary path for reproducible demos and custom CSV files. AgentOS is for visual agent inspection and quick workflow demos. If `DEEPSEEK_API_KEY` is set in `.env`, the agents show DeepSeek as their model.
+**Example inputs the workflow accepts:**
+
+| Input | Result |
+|---|---|
+| _(none)_ | Defaults to `examples/leads.csv` |
+| `examples/leads_clean.csv` | Processes the specified file |
+| `{"csv_path": "examples/leads_mixed_quality.csv"}` | Dict input with file path |
+
+> **Note:** The CLI is the primary path for reproducible demos (`python -m app.main <path>`). AgentOS is for visual agent inspection and quick demos. If `DEEPSEEK_API_KEY` is set in `.env`, the agents show DeepSeek as their model.
 
 ### Outputs
 
