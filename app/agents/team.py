@@ -14,9 +14,17 @@ When ``DEEPSEEK_API_KEY`` is set, the workflow can switch to
 from __future__ import annotations
 
 import logging
+import os
 import re
 
 from agno.agent import Agent as AgnoAgent
+from agno.models.deepseek import DeepSeek
+
+# Default model: DeepSeek. Falls back gracefully if DEEPSEEK_API_KEY is not set.
+_DEFAULT_MODEL = DeepSeek(
+    id=os.getenv("LLM_MODEL", "deepseek-chat"),
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+)
 
 from app.models.schemas import (
     ActionRecommendation,
@@ -255,6 +263,7 @@ intake = AgnoAgent(
     name="IntakeAgent",
     instructions=_INTAKE_INSTRUCTIONS,
     description="Validates and normalises incoming CSV lead records.",
+    model=_DEFAULT_MODEL,
     tools=[],
 )
 
@@ -262,6 +271,7 @@ classify = AgnoAgent(
     name="ClassifyAgent",
     instructions=_CLASSIFY_INSTRUCTIONS,
     description="Classifies leads for urgency, risk, and opportunity.",
+    model=_DEFAULT_MODEL,
     tools=[],
 )
 
@@ -269,6 +279,7 @@ action = AgnoAgent(
     name="ActionAgent",
     instructions=_ACTION_INSTRUCTIONS,
     description="Generates prioritised follow-up actions for each lead.",
+    model=_DEFAULT_MODEL,
     tools=[],
 )
 
@@ -276,6 +287,7 @@ review = AgnoAgent(
     name="ReviewAgent",
     instructions=_REVIEW_INSTRUCTIONS,
     description="Reviews workflow outputs for consistency and completeness.",
+    model=_DEFAULT_MODEL,
     tools=[],
 )
 
