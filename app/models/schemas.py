@@ -102,7 +102,7 @@ class ExecutionMetrics(BaseModel):
     agent_statuses: dict[str, str] = Field(default_factory=dict)
     agent_modes: dict[str, str] = Field(
         default_factory=dict,
-        description="Runtime used by each agent: deepseek, local, local_fallback, or skipped",
+        description="Runtime used by each agent: deepseek or skipped",
     )
     errors: list[str] = Field(default_factory=list)
     success: bool = False

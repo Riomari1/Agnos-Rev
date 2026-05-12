@@ -1,9 +1,8 @@
 """
 Integration and edge-case tests for the Revenue Ops Copilot.
 
-Most tests use the deterministic local runtime so CI does not require network
-access. A dedicated test monkeypatches AgnoAgent.run to verify the DeepSeek tool
-path without calling the live API.
+Tests exercise the live DeepSeek/Agno JSON response route. They require
+DEEPSEEK_API_KEY in .env or the environment.
 """
 
 from __future__ import annotations
@@ -28,6 +27,10 @@ from app.models.schemas import (
     WorkflowState,
 )
 from app.workflows.workflow import RevenueOpsWorkflow
+
+
+def test_deepseek_api_key_is_configured() -> None:
+    assert os.getenv("DEEPSEEK_API_KEY"), "DEEPSEEK_API_KEY is required for tests"
 
 # ------------------------------------------------------------------
 # Fixtures
@@ -135,58 +138,10 @@ def test_workflow_end_to_end(sample_csv: Path) -> None:
     assert 0.0 <= alpha.confidence <= 1.0
 
 
-def test_deepseek_agno_tool_path_is_used(monkeypatch) -> None:
-    """Verify the primary runtime builds Agno DeepSeek agents with tools."""
+def test_deepseek_agno_ai_path_is_used() -> None:
+    """Verify direct agent execution uses DeepSeek and typed AI outputs."""
 
     import app.agents.team as team_mod
-
-    calls: list[dict] = []
-
-    def _fake_run(self, input=None, **kwargs):
-        calls.append(
-            {
-                "name": self.name,
-                "model": self.model.__class__.__name__,
-                "tools": [getattr(t, "name", "") for t in self.tools or []],
-            }
-        )
-        for tool in self.tools or []:
-            if hasattr(tool, "flag_valid"):
-                tool.flag_valid(
-                    company_name="MockCo",
-                    contact_email="ops@mock.co",
-                    industry="Technology",
-                    revenue_millions=150.0,
-                    employees=1200,
-                )
-            if hasattr(tool, "classify_lead"):
-                tool.classify_lead(
-                    company_name="MockCo",
-                    industry="Technology",
-                    urgency="high",
-                    risk="low",
-                    opportunity="high",
-                    confidence=0.9,
-                    enrichment_notes="Strong revenue and technology fit.",
-                )
-            if hasattr(tool, "add_recommendation"):
-                tool.add_recommendation(
-                    company_name="MockCo",
-                    action="Schedule executive follow-up",
-                    priority=1,
-                    assignee="Account Executive",
-                    rationale="High urgency and high opportunity.",
-                    due_by="24h",
-                )
-            if hasattr(tool, "submit_review"):
-                tool.submit_review(
-                    approved=True,
-                    notes="Approved by mocked DeepSeek tool path.",
-                )
-
-    monkeypatch.setenv("REVENUE_OPS_AGENT_MODE", "deepseek")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
-    monkeypatch.setattr(team_mod.AgnoAgent, "run", _fake_run)
 
     state = WorkflowState(
         leads=[
@@ -205,17 +160,6 @@ def test_deepseek_agno_tool_path_is_used(monkeypatch) -> None:
     state = team_mod.action_agent_fn(state)
     state = review_agent_fn(state)
 
-    assert [c["name"] for c in calls] == [
-        "IntakeAgent",
-        "ClassifyAgent",
-        "ActionAgent",
-        "ReviewAgent",
-    ]
-    assert all(c["model"] == "DeepSeek" for c in calls)
-    assert calls[0]["tools"] == ["data_quality", "run_workflow", "intake_tools"]
-    assert calls[1]["tools"] == ["classify_tools"]
-    assert calls[2]["tools"] == ["follow_up_sla", "action_tools"]
-    assert calls[3]["tools"] == ["review_tools"]
     assert state.metrics.agent_modes == {
         "intake": "deepseek",
         "classify": "deepseek",
@@ -418,7 +362,6 @@ def test_cli_runs_end_to_end() -> None:
     assert csv_path.exists(), f"{csv_path} not found"
 
     env = os.environ.copy()
-    env["REVENUE_OPS_AGENT_MODE"] = "local"
     env["PYTHONIOENCODING"] = "utf-8"
 
     result = subprocess.run(
@@ -426,7 +369,7 @@ def test_cli_runs_end_to_end() -> None:
         capture_output=True,
         text=True,
         env=env,
-        timeout=30,
+        timeout=180,
     )
 
     assert result.returncode == 0, result.stderr + result.stdout

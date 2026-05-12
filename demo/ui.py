@@ -37,8 +37,7 @@ runtime = get_runtime_config()
 st.sidebar.header("About")
 st.sidebar.markdown(
     "**DeepSeek + Agno runtime.** "
-    "The workflow uses Agno agents with DeepSeek when configured, and records "
-    "when a local fallback is used for resilience."
+    "The workflow uses Agno agents with DeepSeek. There is no local fallback."
 )
 
 st.sidebar.header("Runtime")
@@ -48,7 +47,7 @@ if runtime["deepseek_configured"]:
     st.sidebar.success("DEEPSEEK_API_KEY is configured")
 else:
     st.sidebar.warning(
-        "DEEPSEEK_API_KEY is not set. The workflow will use the local fallback."
+        "DEEPSEEK_API_KEY is not set. The workflow will fail until it is configured."
     )
 
 st.sidebar.header("Sample Files")
