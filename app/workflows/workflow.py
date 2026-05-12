@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agno.workflow import Workflow as AgnoWorkflow
+from pydantic import ValidationError
 
 from app.agents.team import AGENT_REGISTRY
 from app.models.schemas import LeadRecord, WorkflowState
@@ -205,6 +206,14 @@ class RevenueOpsWorkflow(AgnoWorkflow):
                 try:
                     lead = self._parse_row(row)
                     leads.append(lead)
+                except ValidationError as e:
+                    # Clean one-line summary instead of raw Pydantic error dump
+                    brief = "; ".join(
+                        f"{'.'.join(str(loc) for loc in err['loc'])}: {err['msg']}"
+                        for err in e.errors()
+                    )
+                    logger.warning("  Skipping row %d: %s", row_num, brief)
+                    state.metrics.errors.append(f"Row {row_num}: {brief}")
                 except Exception as e:
                     logger.warning("  Skipping row %d: %s", row_num, e)
                     state.metrics.errors.append(f"Row {row_num}: {e}")

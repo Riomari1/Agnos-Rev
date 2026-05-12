@@ -368,6 +368,15 @@ def _generate_actions(
 ) -> list[ActionRecommendation]:
     actions: list[ActionRecommendation] = []
 
+    # Count how many meaningful fields are populated (beyond just name and notes)
+    data_fields = [
+        lead.contact_email,
+        lead.industry,
+        lead.revenue_millions,
+        lead.employees,
+    ]
+    filled_fields = sum(1 for f in data_fields if f is not None)
+
     if classification.urgency == UrgencyLevel.high:
         actions.append(
             ActionRecommendation(
@@ -393,27 +402,74 @@ def _generate_actions(
         )
 
     if not actions:
-        actions.append(
-            ActionRecommendation(
-                company_name=lead.company_name,
-                action="Send introductory email and qualify",
-                priority=2,
-                assignee="SDR Team",
-                rationale="Standard follow-up for medium-priority lead.",
-                due_by="1 week",
+        if filled_fields == 0:
+            # Stub record — only name/notes, nothing actionable
+            actions.append(
+                ActionRecommendation(
+                    company_name=lead.company_name,
+                    action="Attempt data enrichment before outreach",
+                    priority=3,
+                    assignee="SDR Team",
+                    rationale=f"Very limited data for {lead.company_name} — no email, industry, or size info. "
+                    "Prioritise finding contact details before any outreach.",
+                    due_by="2 weeks",
+                )
             )
-        )
+        elif not lead.contact_email and filled_fields >= 1:
+            # Has some data but missing email
+            actions.append(
+                ActionRecommendation(
+                    company_name=lead.company_name,
+                    action="Research contact and send intro",
+                    priority=2,
+                    assignee="SDR Team",
+                    rationale=f"{lead.company_name} has some signals ({lead.industry or 'unknown industry'}), "
+                    "but no email on file. Find a contact before outreach.",
+                    due_by="1 week",
+                )
+            )
+        else:
+            actions.append(
+                ActionRecommendation(
+                    company_name=lead.company_name,
+                    action="Send introductory email and qualify",
+                    priority=2,
+                    assignee="SDR Team",
+                    rationale=f"Standard follow-up for medium-priority lead.",
+                    due_by="1 week",
+                )
+            )
 
     if classification.risk == RiskLevel.high:
+        risk_rationale = _risk_rationale(lead)
         actions.append(
             ActionRecommendation(
                 company_name=lead.company_name,
                 action="Perform risk assessment call",
                 priority=1,
                 assignee="Customer Success",
-                rationale="High risk — missing contact info or negative signals detected.",
+                rationale=risk_rationale,
                 due_by="72h",
             )
         )
 
     return actions
+
+
+def _risk_rationale(lead: LeadRecord) -> str:
+    """Build a specific risk rationale based on what's missing or concerning."""
+    reasons: list[str] = []
+    if not lead.contact_email:
+        reasons.append("no contact email on file")
+    if not lead.industry or lead.industry.lower() in ("unknown", "other", ""):
+        reasons.append("unknown industry")
+    if lead.revenue_millions is None or lead.revenue_millions < 1:
+        reasons.append("minimal or unknown revenue")
+    if lead.notes and any(
+        kw in lead.notes.lower() for kw in ["churn", "at risk", "competitor", "stalled"]
+    ):
+        reasons.append("negative signals in notes")
+
+    if reasons:
+        return f"High risk — {'; '.join(reasons)}."
+    return "High risk — missing contact info or negative signals detected."

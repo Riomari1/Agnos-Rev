@@ -321,11 +321,12 @@ def test_error_cases_csv_resilience() -> None:
     # 15 rows total − 3 skip = 12 loaded
     assert state.metrics.total_leads == 12
 
-    # Among 12 loaded, 6 are valid, 6 are invalid (missing names, bad emails, duplicates)
+    # Among 12 loaded: 6 valid (ValidCorp, DuplicateInc#1, NoEmailCo, PartialRow, HighValueLead, AnotherValid)
+    # 6 invalid (empty name x2, duplicate x2, bad email x2)
     assert state.metrics.valid_leads == 6
     assert state.metrics.invalid_leads == 6
 
-    # Errors were captured for the skipped rows
+    # Errors captured for the 3 parse-skipped rows
     assert len(state.metrics.errors) >= 3
 
     # Valid leads produced recommendations
