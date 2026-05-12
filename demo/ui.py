@@ -20,9 +20,10 @@ if str(_project_root) not in sys.path:
 import streamlit as st
 from dotenv import load_dotenv
 
-from app.workflows.workflow import RevenueOpsWorkflow
-
+# Load .env BEFORE importing app modules so DEEPSEEK_API_KEY is available
 load_dotenv(_project_root / ".env")
+
+from app.workflows.workflow import RevenueOpsWorkflow
 
 st.set_page_config(page_title="Revenue Ops Copilot", layout="wide")
 st.title("💰 Revenue Ops Copilot")
@@ -41,8 +42,6 @@ st.sidebar.markdown(
     "for classification, action generation, and review (~60s for 10 leads). "
     "Without a key, deterministic rules run instantly (~2ms) — "
     "clone, install, run, results in under 30 seconds."
-)` "
-    "is architecturally supported but not active in this demo."
 )
 
 st.sidebar.header("Sample Files")
