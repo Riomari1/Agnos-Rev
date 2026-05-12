@@ -1,0 +1,16 @@
+company_name,contact_email,industry,revenue_millions,employees,lead_source,notes
+ValidCorp,contact@valid.com,Technology,100.0,500,website,All good here
+,ceo@missing-name.io,Finance,50.0,300,conference,Missing company name — should be flagged
+BadRevenueCo,bad@revenue.io,Tech,not_a_number,200,website,Revenue is malformed text — should be skipped
+DuplicateInc,first@dup.io,SaaS,20.0,150,referral,First occurrence
+DuplicateInc,second@dup.io,SaaS,20.0,150,referral,Duplicate company — should be flagged
+NoEmailCo,,Consulting,5.0,20,website,Missing email — valid but high risk
+BadEmailCo,not-an-email,Consulting,8.0,30,website,Invalid email format — flagged
+NegativeRevenue,neg@revenue.io,SaaS,-10.0,50,conference,Negative revenue — Pydantic validator catches this
+NegativeEmps,neg@emps.io,SaaS,15.0,-5,conference,Negative employees — Pydantic validator catches this
+,missing@name.io,,25.0,,website,Missing company name AND industry — flagged
+PartialRow,,,,,,Only a note — everything missing
+ReallyBadEmail,user@ bad @domain.com,Tech,30.0,100,referral,Email has spaces and symbols — invalid
+HighValueLead,vip@bigco.io,Enterprise SaaS,1000.0,50000,partner,Hot prospect — priority follow-up
+AnotherValid,valid@ok.co,Logistics,45.0,800,referral,Normal lead — should process cleanly
+DuplicateInc,third@dup.io,SaaS,20.0,150,referral,Third occurrence of duplicate

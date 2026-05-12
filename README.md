@@ -36,9 +36,36 @@ python -m app.main examples\leads.csv
 python -m pytest tests\ -v
 ```
 
+### Demo Options
+
+#### Option 1 — CLI (primary)
+
+```powershell
+# Clean dataset — 12 realistic leads, all valid
+python -m app.main examples/leads_clean.csv
+
+# Mixed quality — duplicates, missing emails, varied risk/opportunity
+python -m app.main examples/leads_mixed_quality.csv
+
+# Error cases — malformed fields, blank rows, invalid emails
+python -m app.main examples/leads_error_cases.csv
+```
+
+#### Option 2 — Streamlit UI
+
+```powershell
+# Install streamlit (included in requirements.txt)
+pip install -r requirements.txt
+
+# Launch the UI
+streamlit run demo/ui.py
+```
+
+Upload any CSV through the browser, click ▶ Run Workflow, and see results instantly.
+
 ### Outputs
 
-After running, check `outputs/`:
+After each run, check `outputs/`:
 
 | File | Format | Purpose |
 |---|---|---|

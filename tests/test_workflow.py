@@ -308,3 +308,28 @@ def test_review_rejects_empty_workflow() -> None:
     state = review_agent_fn(WorkflowState(leads=[]))
     assert state.review_approved is False
     assert "No leads" in state.review_notes
+
+
+def test_error_cases_csv_resilience() -> None:
+    """The error-cases CSV should not crash; malformed rows skipped, valid processed."""
+    csv_path = Path("examples/leads_error_cases.csv")
+    assert csv_path.exists(), f"{csv_path} not found"
+
+    state = RevenueOpsWorkflow.run_sync(csv_path)
+
+    # Rows 3, 8, 9 have fatal parse errors → skipped (3 rows dropped)
+    # 15 rows total − 3 skip = 12 loaded
+    assert state.metrics.total_leads == 12
+
+    # Among 12 loaded, 6 are valid, 6 are invalid (missing names, bad emails, duplicates)
+    assert state.metrics.valid_leads == 6
+    assert state.metrics.invalid_leads == 6
+
+    # Errors were captured for the skipped rows
+    assert len(state.metrics.errors) >= 3
+
+    # Valid leads produced recommendations
+    assert len(state.recommendations) >= 6
+
+    # Workflow completed without crashing
+    assert state.metrics.success is True
