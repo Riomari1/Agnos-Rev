@@ -54,14 +54,21 @@ python -m app.main examples/leads_error_cases.csv
 #### Option 2 — Streamlit UI
 
 ```powershell
-# Install streamlit (included in requirements.txt)
-pip install -r requirements.txt
-
-# Launch the UI
 streamlit run demo/ui.py
 ```
 
 Upload any CSV through the browser, click ▶ Run Workflow, and see results instantly.
+
+#### Option 3 — Agno Playground (visual agent inspection)
+
+```powershell
+python -m app.agentos
+```
+
+Then open [https://app.agno.com/playground](https://app.agno.com/playground) and connect to:
+`http://localhost:7777`
+
+You'll see all four agents (IntakeAgent, ClassifyAgent, ActionAgent, ReviewAgent) with their instructions and tools. No API key needed — this is purely for visual inspection of the agent topology.
 
 ### Outputs
 
