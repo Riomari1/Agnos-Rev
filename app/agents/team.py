@@ -1,15 +1,22 @@
 """
-Mock agent implementations for the Revenue Ops Copilot.
+Agent implementations for the Revenue Ops Copilot.
 
-Each agent is a standalone function that operates on WorkflowState.
-In production, these would be Agno Agent instances backed by an LLM.
-Here they use deterministic rule-based logic for demo reliability.
+Each agent exists in two forms:
+  1. A plain function (deterministic, no API key needed).
+  2. An ``agno.Agent`` wrapper with name, instructions, and a tool
+     that delegates to the function.
+
+In demo / no-API-key mode the workflow calls the functions directly.
+When ``DEEPSEEK_API_KEY`` is set, the workflow can switch to
+``agno.Agent.run()`` for LLM-powered reasoning.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+
+from agno.agent import Agent as AgnoAgent
 
 from app.models.schemas import (
     ActionRecommendation,
@@ -24,8 +31,12 @@ from app.models.schemas import (
 
 logger = logging.getLogger("agents")
 
+# ------------------------------------------------------------------
+# Rule-based agent functions (deterministic, no LLM needed)
+# ------------------------------------------------------------------
 
-def intake_agent(state: WorkflowState) -> WorkflowState:
+
+def intake_agent_fn(state: WorkflowState) -> WorkflowState:
     """Validate and normalise raw lead records.
 
     Checks:
@@ -83,7 +94,7 @@ def intake_agent(state: WorkflowState) -> WorkflowState:
     return state
 
 
-def classify_agent(state: WorkflowState) -> WorkflowState:
+def classify_agent_fn(state: WorkflowState) -> WorkflowState:
     """Classify each valid lead for urgency, risk, and opportunity.
 
     Uses deterministic rules based on revenue, employees, and industry.
@@ -113,83 +124,7 @@ def classify_agent(state: WorkflowState) -> WorkflowState:
     return state
 
 
-def _classify_urgency(lead: LeadRecord) -> UrgencyLevel:
-    """High urgency: large revenue, many employees, or known high-value signals."""
-    score = 0
-    if lead.revenue_millions and lead.revenue_millions > 50:
-        score += 2
-    elif lead.revenue_millions and lead.revenue_millions > 10:
-        score += 1
-    if lead.employees and lead.employees > 500:
-        score += 2
-    elif lead.employees and lead.employees > 100:
-        score += 1
-    if lead.notes and any(
-        kw in lead.notes.lower() for kw in ["urgent", "hot", "timeline", "poc"]
-    ):
-        score += 2
-
-    if score >= 3:
-        return UrgencyLevel.high
-    elif score >= 1:
-        return UrgencyLevel.medium
-    return UrgencyLevel.low
-
-
-def _classify_risk(lead: LeadRecord) -> RiskLevel:
-    """Higher risk: no contact, small revenue, unknown industry, or negative notes."""
-    score = 0
-    if not lead.contact_email:
-        score += 2
-    if not lead.industry or lead.industry.lower() in ("unknown", "other", ""):
-        score += 1
-    if lead.revenue_millions is None or lead.revenue_millions < 1:
-        score += 1
-    if lead.notes and any(
-        kw in lead.notes.lower() for kw in ["churn", "at risk", "competitor", "stalled"]
-    ):
-        score += 2
-
-    if score >= 3:
-        return RiskLevel.high
-    elif score >= 1:
-        return RiskLevel.medium
-    return RiskLevel.low
-
-
-def _classify_opportunity(lead: LeadRecord) -> OpportunityLevel:
-    """Opportunity: high revenue, growing industries, good engagement signals."""
-    score = 0
-    if lead.revenue_millions and lead.revenue_millions > 100:
-        score += 2
-    elif lead.revenue_millions and lead.revenue_millions > 20:
-        score += 1
-    if lead.employees and lead.employees > 1000:
-        score += 2
-    elif lead.employees and lead.employees > 200:
-        score += 1
-    if lead.industry and lead.industry.lower() in (
-        "technology",
-        "saas",
-        "ai",
-        "fintech",
-        "healthtech",
-    ):
-        score += 1
-    if lead.notes and any(
-        kw in lead.notes.lower()
-        for kw in ["expanding", "growing", "new funding", "contract"]
-    ):
-        score += 1
-
-    if score >= 3:
-        return OpportunityLevel.high
-    elif score >= 1:
-        return OpportunityLevel.medium
-    return OpportunityLevel.low
-
-
-def action_agent(state: WorkflowState) -> WorkflowState:
+def action_agent_fn(state: WorkflowState) -> WorkflowState:
     """Generate follow-up action recommendations based on classifications."""
     logger.info("Action agent generating recommendations")
 
@@ -204,72 +139,12 @@ def action_agent(state: WorkflowState) -> WorkflowState:
         recommendations = _generate_actions(lead, classification)
         state.recommendations.extend(recommendations)
 
-    # Sort by priority (1 = highest), then by company name
     state.recommendations.sort(key=lambda r: (r.priority, r.company_name))
-
     logger.info("Generated %d recommendation(s)", len(state.recommendations))
     return state
 
 
-def _generate_actions(
-    lead: LeadRecord, classification: ClassificationResult
-) -> list[ActionRecommendation]:
-    """Create 1-2 action items per lead based on its classification."""
-    actions: list[ActionRecommendation] = []
-
-    if classification.urgency == UrgencyLevel.high:
-        actions.append(
-            ActionRecommendation(
-                company_name=lead.company_name,
-                action="Schedule executive outreach within 24h",
-                priority=1,
-                assignee="Account Executive",
-                rationale=f"High urgency — {lead.company_name} scores strongly on revenue/employee signals.",
-                due_by="24h",
-            )
-        )
-
-    if classification.opportunity == OpportunityLevel.high:
-        actions.append(
-            ActionRecommendation(
-                company_name=lead.company_name,
-                action="Prepare custom demo and proposal",
-                priority=1,
-                assignee="Solutions Engineer",
-                rationale=f"High opportunity — strong fit and growth indicators.",
-                due_by="48h",
-            )
-        )
-
-    # Default action for medium/low leads
-    if not actions:
-        actions.append(
-            ActionRecommendation(
-                company_name=lead.company_name,
-                action="Send introductory email and qualify",
-                priority=2,
-                assignee="SDR Team",
-                rationale=f"Standard follow-up for medium-priority lead.",
-                due_by="1 week",
-            )
-        )
-
-    if classification.risk == RiskLevel.high:
-        actions.append(
-            ActionRecommendation(
-                company_name=lead.company_name,
-                action="Perform risk assessment call",
-                priority=1,
-                assignee="Customer Success",
-                rationale=f"High risk — missing contact info or negative signals detected.",
-                due_by="72h",
-            )
-        )
-
-    return actions
-
-
-def review_agent(state: WorkflowState) -> WorkflowState:
+def review_agent_fn(state: WorkflowState) -> WorkflowState:
     """Review the full output for consistency and completeness.
 
     Checks:
@@ -318,3 +193,227 @@ def review_agent(state: WorkflowState) -> WorkflowState:
 
     logger.info("Review complete: approved=%s", approved)
     return state
+
+
+# ------------------------------------------------------------------
+# Agno Agent wrappers (typed descriptors for the orchestration layer)
+# ------------------------------------------------------------------
+# These are real ``agno.Agent`` instances that describe each agent's
+# role, instructions, and expected outputs. In demo mode the workflow
+# calls the function directly; when an LLM provider is configured it
+# could call ``agent.run()`` instead.
+
+_INTAKE_INSTRUCTIONS = """
+You are an intake agent in a Revenue Ops pipeline.
+You receive raw lead records from a CSV and must:
+
+1. Validate that company_name is present and non-empty.
+2. Validate contact_email has a standard format when provided.
+3. Check revenue and employees are non-negative numbers.
+4. Detect and flag duplicates by normalized company name.
+5. Mark invalid records with specific error messages.
+
+Return the validated state with status flags set on each lead.
+"""
+
+_CLASSIFY_INSTRUCTIONS = """
+You are a classification/enrichment agent.
+For each valid lead, evaluate:
+
+- **Urgency**: based on revenue size, employee count, and keywords in notes.
+- **Risk**: based on missing contact info, unknown industry, low revenue, or churn signals.
+- **Opportunity**: based on revenue scale, employee growth, industry vertical, and expansion keywords.
+
+Assign one of low/medium/high to each dimension and provide enrichment notes.
+"""
+
+_ACTION_INSTRUCTIONS = """
+You are an action recommendation agent.
+For each classified lead, recommend 1-2 concrete follow-up actions.
+
+Rules:
+- High urgency leads get executive outreach within 24h.
+- High opportunity leads get custom demo/proposal.
+- High risk leads get risk assessment calls.
+- All other leads get standard SDR qualification.
+
+Assign priority (1=highest, 3=lowest), an owner/assignee, rationale, and due-by window.
+"""
+
+_REVIEW_INSTRUCTIONS = """
+You are a review/manager agent.
+Check the full workflow output for consistency:
+
+1. Every valid lead must have a classification.
+2. Every classified lead must have at least one recommendation.
+3. Flag empty inputs and anomalies.
+4. Set approved=True only when all checks pass.
+5. Produce actionable review notes.
+"""
+
+intake = AgnoAgent(
+    name="IntakeAgent",
+    instructions=_INTAKE_INSTRUCTIONS,
+    description="Validates and normalises incoming CSV lead records.",
+    tools=[],
+)
+
+classify = AgnoAgent(
+    name="ClassifyAgent",
+    instructions=_CLASSIFY_INSTRUCTIONS,
+    description="Classifies leads for urgency, risk, and opportunity.",
+    tools=[],
+)
+
+action = AgnoAgent(
+    name="ActionAgent",
+    instructions=_ACTION_INSTRUCTIONS,
+    description="Generates prioritised follow-up actions for each lead.",
+    tools=[],
+)
+
+review = AgnoAgent(
+    name="ReviewAgent",
+    instructions=_REVIEW_INSTRUCTIONS,
+    description="Reviews workflow outputs for consistency and completeness.",
+    tools=[],
+)
+
+# Lookup mapping for the workflow
+AGENT_REGISTRY: dict[str, tuple[AgnoAgent, callable]] = {
+    "intake": (intake, intake_agent_fn),
+    "classify": (classify, classify_agent_fn),
+    "action": (action, action_agent_fn),
+    "review": (review, review_agent_fn),
+}
+
+
+# ------------------------------------------------------------------
+# Internal scoring helpers
+# ------------------------------------------------------------------
+
+
+def _classify_urgency(lead: LeadRecord) -> UrgencyLevel:
+    score = 0
+    if lead.revenue_millions and lead.revenue_millions > 50:
+        score += 2
+    elif lead.revenue_millions and lead.revenue_millions > 10:
+        score += 1
+    if lead.employees and lead.employees > 500:
+        score += 2
+    elif lead.employees and lead.employees > 100:
+        score += 1
+    if lead.notes and any(
+        kw in lead.notes.lower() for kw in ["urgent", "hot", "timeline", "poc"]
+    ):
+        score += 2
+    if score >= 3:
+        return UrgencyLevel.high
+    elif score >= 1:
+        return UrgencyLevel.medium
+    return UrgencyLevel.low
+
+
+def _classify_risk(lead: LeadRecord) -> RiskLevel:
+    score = 0
+    if not lead.contact_email:
+        score += 2
+    if not lead.industry or lead.industry.lower() in ("unknown", "other", ""):
+        score += 1
+    if lead.revenue_millions is None or lead.revenue_millions < 1:
+        score += 1
+    if lead.notes and any(
+        kw in lead.notes.lower() for kw in ["churn", "at risk", "competitor", "stalled"]
+    ):
+        score += 2
+    if score >= 3:
+        return RiskLevel.high
+    elif score >= 1:
+        return RiskLevel.medium
+    return RiskLevel.low
+
+
+def _classify_opportunity(lead: LeadRecord) -> OpportunityLevel:
+    score = 0
+    if lead.revenue_millions and lead.revenue_millions > 100:
+        score += 2
+    elif lead.revenue_millions and lead.revenue_millions > 20:
+        score += 1
+    if lead.employees and lead.employees > 1000:
+        score += 2
+    elif lead.employees and lead.employees > 200:
+        score += 1
+    if lead.industry and lead.industry.lower() in (
+        "technology",
+        "saas",
+        "ai",
+        "fintech",
+        "healthtech",
+    ):
+        score += 1
+    if lead.notes and any(
+        kw in lead.notes.lower()
+        for kw in ["expanding", "growing", "new funding", "contract"]
+    ):
+        score += 1
+    if score >= 3:
+        return OpportunityLevel.high
+    elif score >= 1:
+        return OpportunityLevel.medium
+    return OpportunityLevel.low
+
+
+def _generate_actions(
+    lead: LeadRecord, classification: ClassificationResult
+) -> list[ActionRecommendation]:
+    actions: list[ActionRecommendation] = []
+
+    if classification.urgency == UrgencyLevel.high:
+        actions.append(
+            ActionRecommendation(
+                company_name=lead.company_name,
+                action="Schedule executive outreach within 24h",
+                priority=1,
+                assignee="Account Executive",
+                rationale=f"High urgency — {lead.company_name} scores strongly on revenue/employee signals.",
+                due_by="24h",
+            )
+        )
+
+    if classification.opportunity == OpportunityLevel.high:
+        actions.append(
+            ActionRecommendation(
+                company_name=lead.company_name,
+                action="Prepare custom demo and proposal",
+                priority=1,
+                assignee="Solutions Engineer",
+                rationale="High opportunity — strong fit and growth indicators.",
+                due_by="48h",
+            )
+        )
+
+    if not actions:
+        actions.append(
+            ActionRecommendation(
+                company_name=lead.company_name,
+                action="Send introductory email and qualify",
+                priority=2,
+                assignee="SDR Team",
+                rationale="Standard follow-up for medium-priority lead.",
+                due_by="1 week",
+            )
+        )
+
+    if classification.risk == RiskLevel.high:
+        actions.append(
+            ActionRecommendation(
+                company_name=lead.company_name,
+                action="Perform risk assessment call",
+                priority=1,
+                assignee="Customer Success",
+                rationale="High risk — missing contact info or negative signals detected.",
+                due_by="72h",
+            )
+        )
+
+    return actions

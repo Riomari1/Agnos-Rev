@@ -1,8 +1,23 @@
 from app.agents.team import (
-    action_agent,
-    classify_agent,
-    intake_agent,
-    review_agent,
+    AGENT_REGISTRY,
+    action,
+    action_agent_fn,
+    classify,
+    classify_agent_fn,
+    intake,
+    intake_agent_fn,
+    review,
+    review_agent_fn,
 )
 
-__all__ = ["intake_agent", "classify_agent", "action_agent", "review_agent"]
+__all__ = [
+    "intake",
+    "intake_agent_fn",
+    "classify",
+    "classify_agent_fn",
+    "action",
+    "action_agent_fn",
+    "review",
+    "review_agent_fn",
+    "AGENT_REGISTRY",
+]

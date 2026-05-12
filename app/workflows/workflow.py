@@ -1,9 +1,14 @@
 """
 Workflow orchestrator for the Revenue Ops Copilot.
 
-Runs agents sequentially with timing, error handling, and structured output.
-Designed to be framework-agnostic — each step is a plain function call
-on a shared WorkflowState, making it easy to test, reason about, and extend.
+Extends ``agno.workflow.Workflow`` for real Agno-based orchestration
+scaffolding — class hierarchy, session management, and execution metadata.
+
+NOTE on Agno's ``_subclass_run`` pattern:
+  ``run_workflow()`` internally assigns ``_subclass_run = self.run``,
+  so overriding ``run`` and calling ``run_workflow()`` creates a
+  recursion loop.  Instead we expose a clean ``run_sync`` factory
+  and call Agno's session setup methods directly.
 """
 
 from __future__ import annotations
@@ -16,63 +21,80 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.agents.team import (
-    action_agent,
-    classify_agent,
-    intake_agent,
-    review_agent,
-)
+from agno.workflow import Workflow as AgnoWorkflow
+
+from app.agents.team import AGENT_REGISTRY
 from app.models.schemas import LeadRecord, WorkflowState
 
 logger = logging.getLogger("workflow")
 
 
-class RevenueOpsWorkflow:
+class RevenueOpsWorkflow(AgnoWorkflow):
     """Orchestrates the full lead-to-recommendation pipeline.
 
-    Usage:
-        workflow = RevenueOpsWorkflow()
-        state = workflow.run("examples/leads.csv")
+    Extends ``agno.workflow.Workflow`` for session management, run IDs,
+    and execution traceability.  Usage:
+
+        state = RevenueOpsWorkflow.run_sync("examples/leads.csv")
     """
 
-    MAX_RETRIES = 2
+    MAX_ATTEMPTS = 3  # first try + 2 retries
 
     def __init__(self) -> None:
-        self._output_dir = Path("outputs")
+        super().__init__(
+            name="RevenueOpsCopilot",
+            description=(
+                "Multi-agent workflow: ingests leads from CSV, "
+                "validates records, classifies urgency/risk/opportunity, "
+                "generates action recommendations, and reviews for consistency."
+            ),
+        )
+        self._output_dir = getattr(
+            self.__class__, "_output_dir_override", Path("outputs")
+        )
         self._output_dir.mkdir(exist_ok=True)
+
+        # Set up Agno session scaffolding directly
+        self.set_storage_mode()
+        self.set_debug()
+        self.set_monitoring()
+        self.set_workflow_id()
+        self.set_session_id()
+        self.run_id = str(int(time.time() * 1_000_000))
+        self.initialize_memory()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self, csv_path: str | Path) -> WorkflowState:
-        """Execute the full workflow from a CSV file path.
+    @staticmethod
+    def run_sync(csv_path: str | Path) -> WorkflowState:
+        """Convenience factory: create a workflow, run it, return state.
 
-        Returns a fully populated WorkflowState with metrics and outputs.
+        Example:
+            state = RevenueOpsWorkflow.run_sync("examples/leads.csv")
         """
+        wf = RevenueOpsWorkflow()
+        return wf._execute(csv_path)
+
+    def _execute(self, csv_path: str | Path) -> WorkflowState:
+        """Core execution logic."""
         state = WorkflowState(input_path=str(csv_path))
         state.metrics.start_time = datetime.now(timezone.utc).isoformat()
 
         logger.info("=" * 60)
         logger.info("Revenue Ops Copilot — workflow started")
-        logger.info("Input: %s", csv_path)
+        logger.info("  Agno session : %s", self.session_id or "(not set)")
+        logger.info("  Agno run ID  : %s", self.run_id or "(not set)")
+        logger.info("  Input file   : %s", csv_path)
         logger.info("=" * 60)
 
         try:
-            # 1. Load CSV into state
-            self._step(state, "load_csv", self._load_csv, csv_path)
-
-            # 2. Intake — validate & normalise
-            self._step(state, "intake", intake_agent)
-
-            # 3. Classify — urgency / risk / opportunity
-            self._step(state, "classify", classify_agent)
-
-            # 4. Recommend — generate actions
-            self._step(state, "action", action_agent)
-
-            # 5. Review — consistency check
-            self._step(state, "review", review_agent)
+            self._step(state, "load_csv", None, self._load_csv, csv_path)
+            self._step(state, "intake", *AGENT_REGISTRY["intake"])
+            self._step(state, "classify", *AGENT_REGISTRY["classify"])
+            self._step(state, "action", *AGENT_REGISTRY["action"])
+            self._step(state, "review", *AGENT_REGISTRY["review"])
 
         except Exception:
             error = traceback.format_exc()
@@ -82,10 +104,10 @@ class RevenueOpsWorkflow:
 
         state.metrics.end_time = datetime.now(timezone.utc).isoformat()
         if state.metrics.start_time:
-            start = datetime.fromisoformat(state.metrics.start_time)
-            end = datetime.fromisoformat(state.metrics.end_time)
+            start_dt = datetime.fromisoformat(state.metrics.start_time)
+            end_dt = datetime.fromisoformat(state.metrics.end_time)
             state.metrics.total_duration_ms = round(
-                (end - start).total_seconds() * 1000, 2
+                (end_dt - start_dt).total_seconds() * 1000, 2
             )
 
         self._write_outputs(state)
@@ -93,64 +115,81 @@ class RevenueOpsWorkflow:
         return state
 
     # ------------------------------------------------------------------
-    # Step execution with retry, timing, and error capture
+    # Step execution
     # ------------------------------------------------------------------
 
     def _step(
         self,
         state: WorkflowState,
         name: str,
+        agno_agent: object,
         func: callable,
         *args,
         **kwargs,
     ) -> None:
-        """Execute a single workflow step with retry and timing."""
-        last_error: Exception | None = None
-        attempt = 0
+        """Execute one workflow step with retry, timing, and error capture."""
+        agent_name = (
+            getattr(agno_agent, "name", name) if agno_agent is not None else name
+        )
+        instructions = (
+            getattr(agno_agent, "instructions", "").strip()
+            if agno_agent is not None
+            else ""
+        )
+        instructions_preview = (
+            instructions[:60] + "…" if len(instructions) > 60 else instructions
+        )
 
-        while attempt <= self.MAX_RETRIES:
-            attempt += 1
-            start = time.perf_counter()
+        _last_error: Exception | None = None
+        overall_start = time.perf_counter()
+
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            attempt_start = time.perf_counter()
             try:
                 logger.info(
-                    "[%s] Starting (attempt %d/%d)", name, attempt, self.MAX_RETRIES + 1
+                    "  ⚙  %s  [attempt %d/%d]", agent_name, attempt, self.MAX_ATTEMPTS
                 )
+                if attempt == 1:
+                    logger.debug("  Instructions: %s", instructions_preview)
+
                 func(state, *args, **kwargs)
-                elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+
+                elapsed_ms = round((time.perf_counter() - attempt_start) * 1000, 2)
                 state.metrics.agent_timings_ms[name] = elapsed_ms
                 state.metrics.agent_statuses[name] = "success"
-                logger.info("[%s] Completed in %.0f ms", name, elapsed_ms)
+                logger.info("  ✓ %s  completed in %.0f ms", agent_name, elapsed_ms)
                 return
+
             except Exception as e:
-                elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-                last_error = e
+                elapsed_ms = round((time.perf_counter() - attempt_start) * 1000, 2)
+                _last_error = e
                 logger.warning(
-                    "[%s] Attempt %d failed after %.0f ms: %s",
-                    name,
+                    "  ✗ %s  attempt %d failed after %.0f ms: %s",
+                    agent_name,
                     attempt,
                     elapsed_ms,
                     e,
                 )
-                if attempt > self.MAX_RETRIES:
+                if attempt == self.MAX_ATTEMPTS:
                     break
 
-        # All attempts exhausted
-        state.metrics.agent_timings_ms[name] = round(
-            (time.perf_counter() - start) * 1000, 2
-        )
+        overall_ms = round((time.perf_counter() - overall_start) * 1000, 2)
+        state.metrics.agent_timings_ms[name] = overall_ms
         state.metrics.agent_statuses[name] = "failure"
-        state.metrics.errors.append(f"[{name}] {last_error}")
-        logger.error("[%s] Failed after %d attempts", name, attempt - 1)
+        state.metrics.errors.append(f"[{name}] {_last_error}")
+        logger.error(
+            "  ✗ %s  failed after %d attempt(s) (%d ms)",
+            agent_name,
+            self.MAX_ATTEMPTS,
+            overall_ms,
+        )
 
     # ------------------------------------------------------------------
     # CSV Loading
     # ------------------------------------------------------------------
 
     def _load_csv(self, state: WorkflowState, path: str | Path) -> None:
-        """Read a CSV file into LeadRecord objects.
-
-        Gracefully handles missing columns, malformed rows, and empty files.
-        """
+        """Read a CSV into ``LeadRecord`` objects, skipping malformed rows."""
         csv_path = Path(path)
         if not csv_path.exists():
             raise FileNotFoundError(f"CSV not found: {csv_path}")
@@ -167,18 +206,18 @@ class RevenueOpsWorkflow:
                     lead = self._parse_row(row)
                     leads.append(lead)
                 except Exception as e:
-                    logger.warning("Skipping row %d: %s", row_num, e)
+                    logger.warning("  Skipping row %d: %s", row_num, e)
                     state.metrics.errors.append(f"Row {row_num}: {e}")
 
             if row_num == 0:
-                logger.warning("CSV has header but no data rows.")
+                logger.warning("  CSV has header but no data rows.")
 
             state.leads = leads
-            logger.info("Loaded %d lead(s) from CSV", len(leads))
+            logger.info("  Loaded %d lead(s) from CSV", len(leads))
 
     @staticmethod
     def _parse_row(row: dict[str, str]) -> LeadRecord:
-        """Convert a CSV dict row into a typed LeadRecord."""
+        """Convert a CSV dict row into a typed ``LeadRecord``."""
         revenue_raw = row.get("revenue_millions", "").strip()
         employees_raw = row.get("employees", "").strip()
 
@@ -211,25 +250,35 @@ class RevenueOpsWorkflow:
     # ------------------------------------------------------------------
 
     def _write_outputs(self, state: WorkflowState) -> None:
-        """Write all output artifacts to the outputs/ directory."""
-
+        """Write all output artifacts to ``outputs/``."""
         self._write_recommendations_json(state)
         self._write_execution_log(state)
         self._write_summary_md(state)
-
-        logger.info("Outputs written to %s", self._output_dir)
+        logger.info("  Outputs written to %s", self._output_dir)
 
     def _write_recommendations_json(self, state: WorkflowState) -> None:
-        """Write recommendations.json — structured action items."""
         data = [r.model_dump() for r in state.recommendations]
         path = self._output_dir / "recommendations.json"
         path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
     def _write_execution_log(self, state: WorkflowState) -> None:
-        """Write execution_log.json — full run metadata."""
         data = {
+            "workflow": {
+                "name": self.name,
+                "session_id": self.session_id,
+                "run_id": self.run_id,
+                "description": self.description,
+            },
             "input_path": state.input_path,
             "metrics": state.metrics.model_dump(),
+            "agents": {
+                name: {
+                    "agno_name": getattr(agno, "name", name),
+                    "status": state.metrics.agent_statuses.get(name, "unknown"),
+                    "timing_ms": state.metrics.agent_timings_ms.get(name),
+                }
+                for name, (agno, _fn) in AGENT_REGISTRY.items()
+            },
             "lead_count": len(state.leads),
             "classification_count": len(state.classifications),
             "recommendation_count": len(state.recommendations),
@@ -240,23 +289,25 @@ class RevenueOpsWorkflow:
         path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
     def _write_summary_md(self, state: WorkflowState) -> None:
-        """Write summary.md — human-readable markdown report."""
         lines: list[str] = [
             "# Revenue Ops Copilot — Summary",
             "",
             f"- **Input file**: `{state.input_path}`",
+            f"- **Agno session**: `{self.session_id or 'N/A'}`",
+            f"- **Agno run**: `{self.run_id or 'N/A'}`",
             f"- **Status**: {'✅ Approved' if state.review_approved else '❌ Needs review'}",
             f"- **Total leads**: {state.metrics.total_leads}",
             f"- **Valid leads**: {state.metrics.valid_leads}",
             f"- **Invalid leads**: {state.metrics.invalid_leads}",
             f"- **Duration**: {state.metrics.total_duration_ms:.0f} ms",
             "",
-            "## Agent Timings",
+            "## Agent Execution",
             "",
         ]
         for agent, ms in state.metrics.agent_timings_ms.items():
             status = state.metrics.agent_statuses.get(agent, "?")
-            lines.append(f"- **{agent}**: {ms:.0f} ms ({status})")
+            ico = "✅" if status == "success" else "❌"
+            lines.append(f"- {ico} **{agent}**: {ms:.0f} ms ({status})")
 
         lines += [
             "",
@@ -269,8 +320,8 @@ class RevenueOpsWorkflow:
         ]
 
         if state.recommendations:
-            lines.append("| Priority | Company | Action | Assignee | Due By |")
-            lines.append("|----------|---------|--------|----------|--------|")
+            lines.append("| Pri | Company | Action | Assignee | Due By |")
+            lines.append("|-----|---------|--------|----------|--------|")
             for r in state.recommendations:
                 lines.append(
                     f"| {r.priority} | {r.company_name} | {r.action} | {r.assignee} | {r.due_by or '-'} |"
@@ -287,13 +338,14 @@ class RevenueOpsWorkflow:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _log_summary(self, state: WorkflowState) -> None:
-        """Print a concise run summary to the terminal."""
         logger.info("=" * 60)
         logger.info("Workflow complete")
         logger.info(
             "  Status:      %s",
             "✅ Approved" if state.review_approved else "❌ Needs review",
         )
+        logger.info("  Session:     %s", self.session_id or "N/A")
+        logger.info("  Run ID:      %s", self.run_id or "N/A")
         logger.info("  Total leads: %d", state.metrics.total_leads)
         logger.info("  Valid:       %d", state.metrics.valid_leads)
         logger.info("  Invalid:     %d", state.metrics.invalid_leads)

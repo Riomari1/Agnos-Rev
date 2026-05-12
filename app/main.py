@@ -65,8 +65,7 @@ def main() -> None:
         logger.error("File not found: %s", csv_path)
         sys.exit(1)
 
-    workflow = RevenueOpsWorkflow()
-    state = workflow.run(csv_path)
+    state = RevenueOpsWorkflow.run_sync(csv_path)
 
     if not state.metrics.success:
         logger.warning(
